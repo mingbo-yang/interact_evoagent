@@ -45,11 +45,12 @@ class AgentLoop:
         self.max_steps = max_steps
         self.cost = CostSnapshot()
 
-    async def run(self, task: str) -> AgentResult:
+    async def run(self, task: str, context: str = "") -> AgentResult:
         """Execute the full agent loop.
 
         Args:
             task: The user's task description.
+            context: Optional context string (memories, docs) for the planner.
 
         Returns:
             AgentResult with final outcome.
@@ -65,7 +66,7 @@ class AgentLoop:
         try:
             # 1. Plan
             tools_schema = self.tool_registry.get_tool_schemas()
-            plan = await self.planner.plan(task, tools_schema)
+            plan = await self.planner.plan(task, tools_schema, context=context or "")
             state.plan = plan
             if self.trace_recorder:
                 self.trace_recorder.save_state(state)

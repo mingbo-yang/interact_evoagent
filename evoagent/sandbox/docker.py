@@ -85,7 +85,8 @@ class DockerSandbox(BaseSandbox):
         ws = str(self.workspace.root.resolve())
         mount_flag = f"{ws}:/workspace:{self.mount_mode},Z"
         full_cmd = f"cd /workspace && {command}"
-        cmd = ["docker", "run", "--rm", "-v", mount_flag, self.image, "sh", "-c", full_cmd]
+        # Correct order: docker run [opts] [mounts] [network] [resources] IMAGE sh -c COMMAND
+        cmd = ["docker", "run", "--rm", "-v", mount_flag]
         if self.network_disabled:
             cmd.extend(["--network", "none"])
         if self.memory_limit:
@@ -95,7 +96,7 @@ class DockerSandbox(BaseSandbox):
         if self.user:
             cmd.extend(["-u", self.user])
         cmd.append(self.image)
-        cmd.extend(["sh", "-c", command])
+        cmd.extend(["sh", "-c", full_cmd])
 
         t0 = time.monotonic()
         try:

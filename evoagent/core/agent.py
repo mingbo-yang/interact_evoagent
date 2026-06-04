@@ -70,6 +70,7 @@ class Agent:
         self.permission_policy = permission_policy
         self.memory_store = memory_store
         self._config = config
+        self._memory_context: str = ""
 
     def _get_provider(self, role: str):
         """Get a provider for a role, falling back to default."""
@@ -90,20 +91,17 @@ class Agent:
             AgentResult with success, final_answer, state, and trace.
         """
         # Pre-run: retrieve relevant memories
+        self._memory_context = ""
         if self.memory_store:
             try:
                 from evoagent.memory.retriever import MemoryRetriever
                 retriever = MemoryRetriever(self.memory_store)
                 memories = retriever.retrieve(task)
-                _context = retriever.format_for_prompt(memories)
+                self._memory_context = retriever.format_for_prompt(memories)
             except Exception:
                 pass
 
-        # Override planner context if set
-        if hasattr(self.planner, '_context_override'):
-            pass  # already set externally
-
-        result = await self._loop.run(task)
+        result = await self._loop.run(task, context=self._memory_context)
 
         # Post-run: write memory
         if self.memory_store and result.state:

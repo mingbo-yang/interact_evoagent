@@ -661,7 +661,7 @@ Runtime 采用 state-driven 设计。`RuntimeState` 会在每一步后更新，`
 ### 从源码安装
 
 ```bash
-git clone https://github.com/<your-org>/<your-repo>.git
+git clone https://github.com/mingbo-yang/EvoAgent.git
 cd <your-repo>
 pip install -e .
 ```
@@ -1474,6 +1474,6 @@ MIT License。详见 [LICENSE](LICENSE)。
 @software{evoagent2026,
   title = {EvoAgent: A Research-Friendly Modular LLM Agent Framework},
   year = {2026},
-  url = {https://github.com/<your-org>/<your-repo>}
+  url = {https://github.com/mingbo-yang/EvoAgent}
 }
 ```

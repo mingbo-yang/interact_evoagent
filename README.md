@@ -661,7 +661,7 @@ The runtime is designed to be state-driven. `RuntimeState` is updated after each
 ### From Source
 
 ```bash
-git clone https://github.com/<your-org>/<your-repo>.git
+git clone https://github.com/mingbo-yang/EvoAgent.git
 cd <your-repo>
 pip install -e .
 ```
@@ -1474,6 +1474,6 @@ If you use EvoAgent in research or experiments, you may cite it as:
 @software{evoagent2026,
   title = {EvoAgent: A Research-Friendly Modular LLM Agent Framework},
   year = {2026},
-  url = {https://github.com/<your-org>/<your-repo>}
+  url = {https://github.com/mingbo-yang/EvoAgent}
 }
 ```

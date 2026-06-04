@@ -121,3 +121,28 @@ async def test_agent_result_has_final_answer(loop, workspace):
     (workspace / "x.txt").write_text("ok")
     result = await loop.run("read file")
     assert result.final_answer is not None
+
+
+@pytest.mark.asyncio
+async def test_memory_injected_into_planner(workspace):
+    """When memory_store has relevant memories, Planner sees them in context."""
+    from evoagent.memory.schema import MemoryItem, MemoryType
+    from evoagent.memory.sqlite_store import SQLiteMemoryStore
+
+    store = SQLiteMemoryStore()
+    store.add(MemoryItem(memory_type=MemoryType.EPISODIC, content="User likes Python scripts",
+                         importance=1.0))
+
+    # Create a simple agent with memory store
+    from evoagent.core.agent import Agent
+    mock = MockLLMProvider(fixed_text='{"risk_level":"low","steps":[{"goal":"Do task with memory","action_type":"finish"}]}')
+    from evoagent.models.router import ModelRouter
+    router = ModelRouter(providers={"planner": mock, "default": mock})
+    tools = create_builtin_registry(workspace)
+    agent = Agent(model_router=router, tool_registry=tools, workspace=workspace, memory_store=store)
+    # run triggers memory retrieval
+    result = await agent.run("Python script")
+    assert result is not None
+    # memory_context should be set
+    assert "Relevant Memories" in agent._memory_context
+    store.close()

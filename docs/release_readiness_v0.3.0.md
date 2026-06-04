@@ -26,10 +26,12 @@
 
 | Benchmark | Tasks | Success Rate | Notes |
 |-----------|-------|-------------|-------|
-| tool_use | 20 | est. ~85% | Mock mode, basic file/shell/python tasks |
-| toy_code | 20 | est. ~75% | LLM rule-based fallback covers common patterns |
-| memory | 10 pairs | est. ~60% recovery | MemoryWriter + MemoryRetriever pipeline |
-| rag | 10 | est. ~80% hit@5 | Hybrid retrieval with inverted index |
+| tool_use | 20 | illustrative ~85% | Mock mode capability ceiling — not measured |
+| toy_code | 20 | illustrative ~75% | Mock mode capability ceiling — not measured |
+| memory | 10 pairs | illustrative ~60% | Mock mode capability ceiling — not measured |
+| rag | 10 | illustrative ~80% | Mock mode capability ceiling — not measured |
+
+Note: These are illustrative capability estimates, not measured benchmark results.
 
 ## Security
 
