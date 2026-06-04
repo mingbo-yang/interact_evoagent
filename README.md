@@ -662,7 +662,7 @@ The runtime is designed to be state-driven. `RuntimeState` is updated after each
 
 ```bash
 git clone https://github.com/mingbo-yang/EvoAgent.git
-cd <your-repo>
+cd EvoAgent
 pip install -e .
 ```
 
