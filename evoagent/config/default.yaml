@@ -1,0 +1,146 @@
+# EvoAgent 默认配置
+# 所有字段均可通过环境变量覆盖：EVOAGENT_<section>__<key>
+
+project:
+  name: evoagent
+  version: "0.1.0"
+  work_dir: .
+
+models:
+  default:
+    provider: deepseek
+    model: deepseek-chat
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    temperature: 0.0
+    max_tokens: 4096
+    max_retries: 3
+    timeout: 60
+    input_price_per_1k: 0.00027
+    output_price_per_1k: 0.0011
+  planner:
+    provider: deepseek
+    model: deepseek-reasoner
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    temperature: 0.0
+    max_tokens: 4096
+    max_retries: 3
+    timeout: 60
+  executor:
+    provider: deepseek
+    model: deepseek-chat
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    temperature: 0.0
+    max_tokens: 4096
+    max_retries: 3
+    timeout: 60
+  critic:
+    provider: deepseek
+    model: deepseek-reasoner
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    temperature: 0.0
+    max_tokens: 4096
+    max_retries: 3
+    timeout: 60
+  summarizer:
+    provider: deepseek
+    model: deepseek-chat
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    temperature: 0.0
+    max_tokens: 4096
+    max_retries: 3
+    timeout: 60
+
+runtime:
+  max_turns: 20
+  max_llm_calls: 50
+  max_tool_calls: 100
+  max_context_tokens: 128000
+  checkpoint_enabled: true
+  checkpoint_dir: .evoagent/checkpoints
+
+permissions:
+  mode: auto
+  deny:
+    - { action: shell, pattern: "rm -rf*", decision: deny, description: "Destructive deletion" }
+    - { action: shell, pattern: "sudo*", decision: deny, description: "Privilege escalation" }
+    - { action: shell, pattern: "git push*", decision: deny, description: "Remote push" }
+    - { action: file_write, pattern: "/etc/*", decision: deny, description: "System config" }
+  ask:
+    - { action: shell, pattern: "*install*", decision: ask, description: "Package install" }
+    - { action: shell, pattern: "*commit*", decision: ask, description: "Git commit" }
+  allow:
+    - { action: shell, pattern: "ls*", decision: allow }
+    - { action: shell, pattern: "echo*", decision: allow }
+    - { action: shell, pattern: "cat*", decision: allow }
+    - { action: shell, pattern: "grep*", decision: allow }
+    - { action: shell, pattern: "git status*", decision: allow }
+    - { action: shell, pattern: "git diff*", decision: allow }
+    - { action: file_read, pattern: "*", decision: allow }
+    - { action: file_write, pattern: "*", decision: allow }
+
+sandbox:
+  type: local
+  timeout: 60
+  workspace: "."
+
+memory:
+  enabled: true
+  store: sqlite
+  path: .evoagent/memory.sqlite
+  top_k: 5
+  write_after_run: true
+  consolidation: true
+  working:
+    enabled: true
+    max_items: 20
+  episodic:
+    enabled: true
+    db_path: .evoagent/memory/episodic.jsonl
+  semantic:
+    enabled: false
+    db_path: .evoagent/memory/semantic.jsonl
+  procedural:
+    enabled: false
+    db_path: .evoagent/memory/procedural.jsonl
+  reflection:
+    enabled: false
+    interval: 5
+
+logging:
+  enabled: true
+  traces_dir: .runs
+  save_checkpoints: true
+  save_diffs: true
+  log_dir: .evoagent/logs
+  log_format: jsonl
+  include_tool_results: true
+  include_llm_responses: true
+
+retrieval:
+  embedding_model: mock
+  vector_backend: simple
+  hybrid_alpha: 0.5
+
+skills:
+  enabled: true
+  paths:
+    - "evoagent/skills/builtin"
+  top_k: 3
+  usage_path: ".evoagent/skills_usage.json"
+
+rag:
+  enabled: false
+  paths: []
+  chunk_size: 1000
+  chunk_overlap: 100
+  top_k: 5
+  retriever: keyword
+
+eval:
+  benchmark_dir: benchmarks/
+  output_dir: .evoagent/eval_results

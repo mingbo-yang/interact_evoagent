@@ -1,0 +1,20 @@
+{"task_id":"tool_read_1","instruction":"Read the file named README.md and tell me what it says.","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"EvoAgent\"}"}
+{"task_id":"tool_write_1","instruction":"Create a file named hello.txt with the content \"Hello EvoAgent\"","task_type":"tool","test_command":"test -f hello.txt && grep -q 'Hello EvoAgent' hello.txt"}
+{"task_id":"tool_edit_1","instruction":"In the file config.yaml, replace 'debug: false' with 'debug: true'","task_type":"tool","input_files":{"config.yaml":"debug: false\nport: 8080"},"expected_check":"{\"type\": \"contains\", \"value\": \"debug: true\"}"}
+{"task_id":"tool_grep_1","instruction":"Search for the word 'import' in all Python files.","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"import\"}"}
+{"task_id":"tool_listdir_1","instruction":"List all files in the current directory.","task_type":"tool","expected_check":"{\"type\": \"regex\", \"value\": \".+\"}"}
+{"task_id":"tool_python_1","instruction":"Write and run Python code that prints 'hello from python'","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"hello from python\"}"}
+{"task_id":"tool_shell_safe_1","instruction":"Run the shell command 'echo safe_command_executed'","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"safe_command_executed\"}"}
+{"task_id":"tool_git_status_1","instruction":"Run git status on the current repository.","task_type":"tool"}
+{"task_id":"tool_multistep_1","instruction":"First list files, then read the first Python file you find, and tell me its contents.","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"def\"}"}
+{"task_id":"tool_multistep_2","instruction":"Create a file data.txt with numbers 1 to 5, then read it back and sum the numbers.","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"15\"}"}
+{"task_id":"tool_read_range","instruction":"Read lines 5 through 10 of the file evoagent/config/default.yaml","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"project\"}"}
+{"task_id":"tool_write_overwrite","instruction":"Write 'version 1' to version.txt, then overwrite it with 'version 2'","task_type":"tool","test_command":"grep -q 'version 2' version.txt"}
+{"task_id":"tool_edit_replace_all","instruction":"In the file repeated.txt containing 'dup dup dup', replace all occurrences of 'dup' with 'done'","task_type":"tool","input_files":{"repeated.txt":"dup dup dup"},"test_command":"grep -q 'done done done' repeated.txt"}
+{"task_id":"tool_grep_glob","instruction":"Search for 'class' only in Python files","task_type":"tool","expected_check":"{\"type\": \"regex\", \"value\": \".*\"}"}
+{"task_id":"tool_python_script","instruction":"Create a Python script calc.py that defines add(a,b) returning a+b, then run it with python calc.py","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"def add\"}"}
+{"task_id":"tool_shell_timeout","instruction":"Run a quick shell command: date","task_type":"tool","expected_check":"{\"type\": \"regex\", \"value\": \".*\"}"}
+{"task_id":"tool_git_diff","instruction":"Show the git diff of the current repository.","task_type":"tool"}
+{"task_id":"tool_file_write_read","instruction":"Write 'benchmark test data' to benchmark_test.txt, then read it back.","task_type":"tool","test_command":"grep -q 'benchmark test data' benchmark_test.txt"}
+{"task_id":"tool_listdir_filtered","instruction":"List all Python files in the current directory.","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \".py\"}"}
+{"task_id":"tool_shell_pipe","instruction":"Run: echo 'one two three' | wc -w","task_type":"tool","expected_check":"{\"type\": \"contains\", \"value\": \"3\"}"}

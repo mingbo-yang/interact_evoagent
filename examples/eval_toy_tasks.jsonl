@@ -1,0 +1,5 @@
+{"task_id":"text_contains","instruction":"Say hello world in your response.","task_type":"text","expected_check":"{\"type\": \"contains\", \"value\": \"hello\"}"}
+{"task_id":"text_exact","instruction":"Reply with exactly: OK","task_type":"text","expected_check":"{\"type\": \"exact\", \"value\": \"OK\"}"}
+{"task_id":"text_regex","instruction":"Output any number between 100 and 200.","task_type":"text","expected_check":"{\"type\": \"regex\", \"value\": \"1[0-9]{2}\"}"}
+{"task_id":"tool_list","instruction":"List files in current directory. If there are files, mention them.","task_type":"tool"}
+{"task_id":"code_simple","instruction":"Write a Python function add(a,b) that returns a+b.","task_type":"code","expected_output":"def add"}

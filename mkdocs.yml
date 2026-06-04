@@ -1,0 +1,22 @@
+site_name: EvoAgent
+site_description: A research-friendly, modular agent framework
+repo_url: https://github.com/evoagent/evoagent
+theme: readthedocs
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Architecture: architecture.md
+  - Configuration: configuration.md
+  - Models: models.md
+  - Tools: tools.md
+  - Sandbox: sandbox.md
+  - Memory: memory_system.md
+  - RAG: rag.md
+  - Code Agent: code_agent.md
+  - Evaluation: evaluation.md
+  - Skills: skills.md
+  - Workflow: workflow.md
+  - Multi-Agent: multi_agent.md
+  - FAQ: faq.md
+  - Roadmap: roadmap.md
