@@ -147,20 +147,27 @@ class ConversationRuntime:
 
         self.session.record_turn(text, text if 'text' in dir() else "", tool_rounds)
 
+    _last_reasoning: str = ""
+
     def _generate_reasoning(self) -> str:
-        """Generate public reasoning summary based on tool calls made."""
+        """Generate public reasoning summary — deduplicated."""
         names = self._tool_names_this_turn
         if not names:
             return ""
         if "list_directory" in names or "grep" in names:
-            return "· Exploring repository structure..."
-        if "read_file" in names:
-            return "· Reading relevant files..."
-        if "bash" in names or "python" in names:
-            return "· Running commands..."
-        if "write_file" in names or "edit_file" in names:
-            return "· Applying changes..."
-        return f"· Executing: {', '.join(names[:3])}..."
+            msg = "· Exploring repository structure..."
+        elif "read_file" in names:
+            msg = "· Reading relevant files..."
+        elif "bash" in names or "python" in names:
+            msg = "· Running commands..."
+        elif "write_file" in names or "edit_file" in names:
+            msg = "· Applying changes..."
+        else:
+            msg = f"· Executing: {', '.join(names[:3])}..."
+        if msg == self._last_reasoning:
+            return ""
+        self._last_reasoning = msg
+        return msg
 
     def _safe_messages(self) -> list[Message]:
         history = self.session.messages[-50:]

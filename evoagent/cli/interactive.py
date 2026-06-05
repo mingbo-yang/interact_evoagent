@@ -238,11 +238,12 @@ async def run_interactive():
         try:
             t0 = __import__('time').monotonic()
             if HAS_RICH and console:
-                # Use streaming path with reasoning display
+                # Use streaming path — no status() to keep toolbar visible
                 response_parts = []
                 async for chunk in runtime.handle_user_message_stream(user_input):
                     if chunk.startswith("·"):
-                        console.print(chunk, style="evo.reasoning")
+                        if chunk.strip():
+                            console.print(chunk, style="evo.reasoning")
                     else:
                         response_parts.append(chunk)
                 response = "".join(response_parts)
