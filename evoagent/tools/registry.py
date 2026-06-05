@@ -93,21 +93,26 @@ class ToolRegistry:
 
     # ── Execution ─────────────────────────────────────────────────────
 
-    async def run_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+    async def run_tool(self, name: str, arguments: dict[str, Any],
+                        call_id: str | None = None) -> ToolResult:
         """Look up and execute a tool by name.
 
         Args:
             name: Tool name.
             arguments: Raw argument dict.
+            call_id: Optional ToolCall.id to preserve in ToolResult.
 
         Returns:
-            ToolResult.
+            ToolResult with call_id matching the triggering ToolCall.id.
 
         Raises:
             ToolError: If the tool is not registered.
         """
         tool = self.get(name)
-        return await tool.arun(arguments)
+        result = await tool.arun(arguments)
+        if call_id:
+            result.call_id = call_id
+        return result
 
     def __len__(self) -> int:
         return len(self._tools)

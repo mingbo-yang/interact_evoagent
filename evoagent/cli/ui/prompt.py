@@ -64,5 +64,6 @@ def create_prompt_session(mode: str = "default", model_label: str = "deepseek:ch
         completer=SlashCompleter(),
         key_bindings=bindings,
         history=history,
-        multiline=False,
+        multiline=True,
+        wrap_lines=False,
     )

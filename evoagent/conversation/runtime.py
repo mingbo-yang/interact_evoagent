@@ -103,9 +103,9 @@ class ConversationRuntime:
                             payload={"tool_name": tc.name, "arguments": tc.arguments},
                         ))
 
-                    # Execute tool
+                    # Execute tool — pass call_id for ToolResult.call_id consistency
                     try:
-                        result = await self.tool_registry.run_tool(tc.name, tc.arguments)
+                        result = await self.tool_registry.run_tool(tc.name, tc.arguments, call_id=tc.id)
                     except Exception as e:
                         result = type('obj', (object,), {'success': False, 'output': '', 'error': str(e)})()
 

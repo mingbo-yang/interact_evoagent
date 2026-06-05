@@ -4,7 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-from evoagent.cli.ui.reasoning_view import format_tool_count
 from evoagent.conversation.runtime import ConversationRuntime
 from evoagent.conversation.schema import AgentMode
 from evoagent.conversation.session import ConversationSession
@@ -50,7 +49,7 @@ async def run_interactive():
 
     current_provider = "deepseek" if has_key else "mock"
     current_model_id = "deepseek-chat" if has_key else "mock"
-    version = "v0.4.1"
+    version = "v0.5.0"
 
     # Banner
     if HAS_RICH and sys.stdout.isatty():
@@ -148,16 +147,25 @@ async def run_interactive():
 
         # Normal message with error recovery
         try:
+            t0 = __import__('time').monotonic()
             if HAS_RICH and console:
                 with console.status("[evo.spinner]Thinking…", spinner="dots"):
                     response = await runtime.handle_user_message(user_input)
+                elapsed = __import__('time').monotonic() - t0
+                tc = sum(1 for m in session.messages if m.role.value == "tool")
+                parts = [f"{elapsed:.1f}s"]
+                if tc:
+                    parts.append(f"{tc} tool calls")
                 console.print(f"● {response}", style="evo.success")
+                console.print(f"  ({', '.join(parts)})", style="evo.muted")
             else:
                 response = await runtime.handle_user_message(user_input)
+                elapsed = __import__('time').monotonic() - t0
                 tc = sum(1 for m in session.messages if m.role.value == "tool")
-                timing = format_tool_count(tc)
-                mark = f"  ({timing})" if timing else ""
-                print(f"\n{response}\n{mark}\n")
+                parts = [f"{elapsed:.1f}s"]
+                if tc:
+                    parts.append(f"{tc} tool calls")
+                print(f"\n{response}\n  ({', '.join(parts)})\n")
         except Exception as exc:
             store.save(session)
             from evoagent.cli.ui.error_view import render_error
