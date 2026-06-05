@@ -60,7 +60,10 @@ class ConversationRuntime:
                         self.session.append_tool_message(tc.id, "Permission denied.", tc.name)
                         continue
                     if decision == PermissionDecision.ASK:
-                        self.session.append_tool_message(tc.id, f"Approval required for: {tc.name}. Try alternative.", tc.name)
+                        await self._publish_tool_event("approval_requested", tc.name, {
+                            "tool_call_id": tc.id, "arguments": tc.arguments})
+                        self.session.append_tool_message(tc.id,
+                            f"Approval required for: {tc.name}. Reply 'yes' to approve.", tc.name)
                         continue
                     await self._publish_tool_event("tool_call_started", tc.name, tc.arguments)
                     try:
@@ -111,9 +114,17 @@ class ConversationRuntime:
                 for tc in response.tool_calls:
                     self._tool_names_this_turn.append(tc.name)
                     decision = self.permission_policy.check("tool", tc.name, risk_level="medium")
-                    if decision in (PermissionDecision.DENY, PermissionDecision.ASK):
-                        msg = "Permission denied." if decision == PermissionDecision.DENY else f"Approval required: {tc.name}"
-                        self.session.append_tool_message(tc.id, msg, tc.name)
+                    if decision == PermissionDecision.DENY:
+                        self.session.append_tool_message(tc.id, "Permission denied.", tc.name)
+                        continue
+                    if decision == PermissionDecision.ASK:
+                        # Publish approval request for CLI to show the approval UI
+                        await self._publish_tool_event("approval_requested", tc.name, {
+                            "tool_call_id": tc.id,
+                            "arguments": tc.arguments,
+                        })
+                        self.session.append_tool_message(tc.id,
+                            f"Approval required for: {tc.name}. Use /approve or reply 'yes' to approve.", tc.name)
                         continue
                     await self._publish_tool_event("tool_call_started", tc.name, tc.arguments)
                     try:
