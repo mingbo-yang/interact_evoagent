@@ -148,6 +148,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     }
                     for tc in m.tool_calls
                 ]
+            # Preserve reasoning_content for DeepSeek thinking mode
+            if m.reasoning_content:
+                msg["reasoning_content"] = m.reasoning_content
             msgs.append(msg)
 
         payload: dict[str, Any] = {

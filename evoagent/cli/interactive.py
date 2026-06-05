@@ -267,11 +267,39 @@ def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
         return "ok"
 
     if command == "/plan":
-        if session.current_plan:
-            steps = [f"{i+1}. {s.goal}" for i, s in enumerate(session.current_plan.steps)]
-            print("Plan:\n" + "\n".join(steps))
+        sub = parts[1] if len(parts) > 1 else "show"
+        if sub == "create":
+            desc = " ".join(parts[2:]) if len(parts) > 2 else "Untitled plan"
+            from evoagent.planning.schema import ActionType, Plan, PlanStep
+            session.current_plan = Plan(
+                task=desc,
+                steps=[PlanStep(goal=desc, action_type=ActionType.FINISH)],
+            )
+            print(f"Plan created: {desc}")
+        elif sub == "edit":
+            instruction = " ".join(parts[2:]) if len(parts) > 2 else ""
+            if session.current_plan and instruction:
+                from evoagent.planning.schema import ActionType, PlanStep
+                session.current_plan.steps.append(
+                    PlanStep(goal=instruction, action_type=ActionType.FINISH))
+                print("Plan updated.")
+            else:
+                print("No active plan or no instruction.")
+        elif sub == "execute":
+            session.metadata["plan_approved"] = True
+            print("Plan approved. Executing...")
+        elif sub == "cancel":
+            session.current_plan = None
+            print("Plan cancelled.")
+        elif sub == "clear":
+            session.current_plan = None
+            print("Plan cleared.")
         else:
-            print("No active plan.")
+            if session.current_plan:
+                steps = [f"{i+1}. {s.goal}" for i, s in enumerate(session.current_plan.steps)]
+                print("Plan:\n" + "\n".join(steps))
+            else:
+                print("No active plan.")
         return "ok"
 
     if command == "/sessions":
@@ -341,9 +369,31 @@ def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
         return "ok"
 
     if command == "/tools":
-        print("Available tools:")
-        for t in sorted(tools.list_tools()) if hasattr(tools, 'list_tools') else []:
-            print(f"  {t}")
+        if len(parts) > 1 and parts[1] == "show" and len(parts) > 2:
+            name = parts[2]
+            try:
+                tool = tools.get(name)
+                print(f"Name: {tool.name}")
+                print(f"Description: {tool.description}")
+                print(f"Risk: {tool.risk_level.value}")
+                schema = tool.input_schema.model_json_schema()
+                props = schema.get("properties", {})
+                print("Parameters:")
+                for pname, pinfo in props.items():
+                    req = pname in schema.get("required", [])
+                    print(f"  {pname}: {pinfo.get('type','?')}{' (required)' if req else ''}")
+                    if 'description' in pinfo:
+                        print(f"    {pinfo['description'][:100]}")
+            except Exception:
+                print(f"Tool '{name}' not found.")
+            return "ok"
+        if len(parts) > 1 and parts[1] == "list":
+            for t in sorted(tools.list_tools()) if hasattr(tools, 'list_tools') else []:
+                tool = tools.get(t)
+                risk = tool.risk_level.value if hasattr(tool, 'risk_level') else '?'
+                print(f"  {t:20s}  risk:{risk}")
+            return "ok"
+        print("Usage: /tools list | /tools show <name>")
         return "ok"
 
     if command == "/permissions":
@@ -415,7 +465,26 @@ def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
         return "ok"
 
     if command == "/compact":
-        print("Context compaction: not yet implemented.")
+        total_chars = sum(len(m.content) for m in session.messages)
+        if total_chars > 500000:
+            # Keep system + last 20 messages
+            kept = session.messages[-20:]
+            old_count = len(session.messages)
+            session.messages = kept
+            print(f"Compacted: {old_count} → {len(kept)} messages ({total_chars:,} chars)")
+        else:
+            print(f"Context: {total_chars:,} chars · {len(session.messages)} msgs (no compaction needed)")
+        return "ok"
+
+    if command == "/undo":
+        changed = session.metadata.get("modified_files", [])
+        if changed:
+            print("Changed files this session:")
+            for f in changed:
+                print(f"  {f}")
+            print("Use 'git checkout' to revert specific files.")
+        else:
+            print("No file changes to undo.")
         return "ok"
 
     if command == "/clear":
