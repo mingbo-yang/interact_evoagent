@@ -32,12 +32,12 @@ def render_banner(version: str, model_label: str, mode: str, workspace: str,
     # Left panel: Logo + info
     logo = Text()
     for line in LOGO_LINES:
-        logo.append(line, style="evo.logo")
+        logo.append(line, style="bold cyan")
         logo.append("\n")
 
     info = Table.grid(padding=(0, 1))
-    info.add_column(style="evo.muted", width=10)
-    info.add_column(style="evo.primary")
+    info.add_column(style="grey62", width=10)
+    info.add_column(style="cyan")
     info.add_row("Model:", model_label)
     info.add_row("Billing:", billing)
     info.add_row("Mode:", mode)
@@ -50,18 +50,18 @@ def render_banner(version: str, model_label: str, mode: str, workspace: str,
 
     # Right panel: Tips + What's new
     tips = Text()
-    tips.append("Tips for getting started\n", style="evo.heading")
-    tips.append("/init    Create project instruction file\n", style="evo.muted")
-    tips.append("/help    View all commands\n", style="evo.muted")
-    tips.append("/mode    Switch runtime mode\n", style="evo.muted")
-    tips.append("/model   Switch model/provider\n", style="evo.muted")
+    tips.append("Tips for getting started\n", style="bold cyan")
+    tips.append("/init    Create project instruction file\n", style="grey62")
+    tips.append("/help    View all commands\n", style="grey62")
+    tips.append("/mode    Switch runtime mode\n", style="grey62")
+    tips.append("/model   Switch model/provider\n", style="grey62")
     tips.append("\n")
-    tips.append("What's new\n", style="evo.heading")
+    tips.append("What's new\n", style="bold cyan")
     tips.append("• Persistent multi-turn conversation\n")
     tips.append("• Cross-provider model switching\n")
     tips.append("• Interactive plan approval\n")
 
-    right = Panel(tips, title="Getting Started", border_style="evo.border")
+    right = Panel(tips, title="Getting Started", border_style="grey42")
 
     if is_narrow:
         content = Table.grid(padding=(1, 0))
@@ -71,10 +71,11 @@ def render_banner(version: str, model_label: str, mode: str, workspace: str,
     else:
         content = Columns([left, right])
 
-    title = Text(f"EvoAgent {version}", style="evo.primary bold")
-    title.append(f"  {workspace}", style="evo.muted")
+    title = Text("EvoAgent ", style="bold cyan")
+    title.append(f"{version}", style="cyan")
+    title.append(f"  {workspace}", style="grey62")
 
-    return Panel(content, title=title, border_style="evo.border")
+    return Panel(content, title=title, border_style="grey42")
 
 
 def render_simple_startup(version: str, model_label: str, mode: str):
