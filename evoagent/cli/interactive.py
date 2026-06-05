@@ -9,6 +9,8 @@ from evoagent.conversation.session import ConversationSession
 from evoagent.conversation.store import SessionStore
 from evoagent.models.deepseek import DeepSeekProvider
 from evoagent.models.factory import MockLLMProvider
+from evoagent.models.provider_registry import ProviderRegistry
+from evoagent.models.registry import ModelRegistry
 from evoagent.models.router import ModelRouter
 from evoagent.sandbox.policy import PermissionPolicy
 from evoagent.tools.builtin import create_builtin_registry
@@ -33,17 +35,23 @@ async def run_interactive():
     # Create or resume session
     session = ConversationSession(workspace=str(workspace))
     runtime = ConversationRuntime(session, router, tools, policy)
+    provider_registry = ProviderRegistry()
+    model_registry = ModelRegistry()
+
+    current_provider = "deepseek" if has_key else "mock"
+    current_model_id = "deepseek-chat" if has_key else "mock"
 
     print("EvoAgent v0.4.0")
     print(f"Workspace: {workspace}")
-    print(f"Model: {'deepseek' if has_key else 'mock'}")
+    print(f"Model: {current_provider}/{current_model_id}")
     print(f"Mode: {session.mode.value}")
     print(f"Session: {session.session_id}")
     print()
 
     while True:
         try:
-            user_input = input(f"EvoAgent[{session.mode.value}]> ").strip()
+            label = f"{current_provider}:{current_model_id[:12]}" if current_model_id else current_provider
+            user_input = input(f"EvoAgent[{session.mode.value}][{label}]> ").strip()
         except (EOFError, KeyboardInterrupt):
             store.save(session)
             print("\nSession saved. Goodbye.")
@@ -54,7 +62,7 @@ async def run_interactive():
 
         # Slash commands
         if user_input.startswith("/"):
-            handled = _handle_command(user_input, session, store)
+            handled = _handle_command(user_input, session, store, provider_registry, model_registry)
             if handled == "exit":
                 store.save(session)
                 print("Goodbye.")
@@ -67,12 +75,16 @@ async def run_interactive():
         store.save(session)
 
 
-def _handle_command(cmd: str, session: ConversationSession, store: SessionStore) -> str:
+def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
+                    providers=None, models=None) -> str:
     parts = cmd.strip().split()
     command = parts[0].lower()
 
     if command == "/exit" or command == "/quit":
         return "exit"
+
+    if command == "/model":
+        return _handle_model(parts, providers, models)
 
     if command == "/mode":
         if len(parts) > 1:
@@ -149,4 +161,76 @@ def _handle_command(cmd: str, session: ConversationSession, store: SessionStore)
         return "ok"
 
     print(f"Unknown command: {command}")
+    return "ok"
+
+
+_current_model_selection: str = "default"
+
+
+def _handle_model(parts: list[str], providers, models) -> str:
+    """Handle /model commands."""
+    global _current_model_selection
+    if len(parts) == 1:
+        print(f"Current model: {_current_model_selection}")
+        print()
+        print("Configured providers:")
+        if providers:
+            for pid, status in providers.status_summary().items():
+                print(f"  {pid:20s} {status}")
+        print()
+        print("Usage:")
+        print("  /model list                 List known models")
+        print("  /model list <provider>      List provider models")
+        print("  /model <provider>/<id>      Switch to a model")
+        print("  /model pro                  Use fast alias")
+        print("  /model status               Show status")
+        return "ok"
+
+    sub = parts[1].lower()
+    if sub == "list":
+        if len(parts) > 2:
+            provider = parts[2]
+            if models:
+                for m in models.list_by_provider(provider):
+                    print(f"  {m.canonical_id}")
+            return "ok"
+        if models:
+            for m in models.list_all():
+                print(f"  {m.canonical_id}")
+        return "ok"
+
+    if sub == "status":
+        print(f"Current: {_current_model_selection}")
+        if providers:
+            for pid, status in providers.status_summary().items():
+                print(f"  {pid}: {status}")
+        return "ok"
+
+    if sub == "refresh":
+        print("Model list refreshed (discovery not yet implemented).")
+        return "ok"
+
+    # Switch model: /model <provider>/<model-id> or /model <alias>
+    target = parts[1]
+    if "/" in target:
+        print(f"Model switched to: {target}")
+        # Register the model
+        if models:
+            prov, mid = target.split("/", 1)
+            models.register(__import__("evoagent.models.registry", fromlist=["ModelDefinition"]).ModelDefinition(
+                provider=prov, model_id=mid, canonical_id=target))
+            models.mark_recent(target)
+        _current_model_selection = target
+        return "ok"
+
+    # Try alias
+    if models:
+        resolved = models.resolve(target)
+        if resolved:
+            print(f"Model switched to: {resolved} (alias: {target})")
+            models.mark_recent(resolved)
+            _current_model_selection = resolved
+            return "ok"
+
+    print(f"Unknown model/alias: {target}")
     return "ok"
