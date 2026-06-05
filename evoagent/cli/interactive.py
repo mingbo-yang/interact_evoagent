@@ -283,6 +283,22 @@ def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
         print("New session created.")
         return "ok"
 
+    if command == "/fork":
+        new_session = ConversationSession(workspace=str(session.workspace))
+        new_session.messages = list(session.messages)
+        new_session.mode = session.mode
+        new_session.current_plan = session.current_plan
+        new_session.turns = list(session.turns)
+        store.save(new_session)
+        session.session_id = new_session.session_id
+        print(f"Forked session: {new_session.session_id} (history preserved)")
+        return "ok"
+
+    if command == "/reset":
+        session.__init__(workspace=str(session.workspace))
+        print("Session reset. All state cleared.")
+        return "ok"
+
     if command == "/status":
         print(f"Session: {session.session_id}")
         print(f"Mode: {session.mode.value}")
