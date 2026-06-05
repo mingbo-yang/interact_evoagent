@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+from evoagent.cli.ui.reasoning_view import format_tool_count
 from evoagent.conversation.runtime import ConversationRuntime
 from evoagent.conversation.schema import AgentMode
 from evoagent.conversation.session import ConversationSession
@@ -63,6 +64,28 @@ async def run_interactive():
         console = None
         print(f"EvoAgent {version} | {current_provider}:{current_model_id} | {session.mode.value}")
 
+    # EventBus for tool activity rendering
+    from evoagent.cli.ui.event_bus import EventBus
+    from evoagent.cli.ui.events import UIEventType
+    event_bus = EventBus()
+    async def _on_tool(evt):
+        name = evt.payload.get("tool_name", "?")
+        if evt.type == UIEventType.TOOL_CALL_STARTED:
+            if HAS_RICH and console:
+                console.print(f"◐ {name}", style="evo.tool")
+            else:
+                print(f"  ◐ {name}")
+        else:
+            out = evt.payload.get("output", "")[:150]
+            if HAS_RICH and console:
+                console.print(f"● {name}\n  {out}", style="evo.tool")
+            else:
+                print(f"  ● {name}")
+    event_bus.subscribe(UIEventType.TOOL_CALL_STARTED.value, _on_tool)
+    event_bus.subscribe(UIEventType.TOOL_CALL_FINISHED.value, _on_tool)
+    event_bus.subscribe(UIEventType.TOOL_CALL_FAILED.value, _on_tool)
+    runtime = ConversationRuntime(session, router, tools, policy, event_bus=event_bus)
+
     while True:
         try:
             label = f"{current_provider}:{current_model_id[:12]}" if current_model_id else current_provider
@@ -103,7 +126,10 @@ async def run_interactive():
                 console.print(f"● {response}", style="evo.success")
             else:
                 response = await runtime.handle_user_message(user_input)
-                print(f"\n{response}\n")
+                tc = sum(1 for m in session.messages if m.role.value == "tool")
+                timing = format_tool_count(tc)
+                mark = f"  ({timing})" if timing else ""
+                print(f"\n{response}\n{mark}\n")
         except Exception as exc:
             store.save(session)
             if HAS_RICH and console:

@@ -28,6 +28,7 @@ class ConversationRuntime:
         permission_policy: PermissionPolicy | None = None,
         max_tool_rounds: int = 50,
         max_steps: int = 100,
+        event_bus=None,
     ):
         self.session = session
         self.model_router = model_router
@@ -35,6 +36,7 @@ class ConversationRuntime:
         self.permission_policy = permission_policy or PermissionPolicy()
         self.max_tool_rounds = max_tool_rounds
         self.max_steps = max_steps
+        self.event_bus = event_bus
 
     async def handle_user_message(self, text: str) -> str:
         """Process one user message. Multiple tool calls within one turn."""
@@ -92,14 +94,31 @@ class ConversationRuntime:
                             tc.id, f"Approval required for: {tc.name}. Use /approve to continue.", tc.name)
                         continue
 
-                    # Execute tool — pass call_id for consistency
+                    # Publish tool_call_started event
+                    if self.event_bus:
+                        from evoagent.cli.ui.events import UIEvent, UIEventType
+                        await self.event_bus.publish(UIEvent(
+                            type=UIEventType.TOOL_CALL_STARTED,
+                            session_id=self.session.session_id,
+                            payload={"tool_name": tc.name, "arguments": tc.arguments},
+                        ))
+
+                    # Execute tool
                     try:
                         result = await self.tool_registry.run_tool(tc.name, tc.arguments)
                     except Exception as e:
                         result = type('obj', (object,), {'success': False, 'output': '', 'error': str(e)})()
 
-                    # Ensure call_id matches
-                    tool_content = result.output or result.error or ""
+                    # Publish tool_call_finished event
+                    if self.event_bus:
+                        from evoagent.cli.ui.events import UIEvent, UIEventType
+                        await self.event_bus.publish(UIEvent(
+                            type=UIEventType.TOOL_CALL_FINISHED if getattr(result, 'success', False) else UIEventType.TOOL_CALL_FAILED,
+                            session_id=self.session.session_id,
+                            payload={"tool_name": tc.name, "output": str(getattr(result, 'output', '') or getattr(result, 'error', ''))[:200]},
+                        ))
+
+                    tool_content = getattr(result, 'output', '') or getattr(result, 'error', '') or ""
                     self.session.append_tool_message(tc.id, str(tool_content), tc.name)
                 continue
 

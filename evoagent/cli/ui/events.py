@@ -1,4 +1,4 @@
-"""Event types for UI communication."""
+"""UI Event types for decoupled Runtime-UI communication."""
 
 from enum import StrEnum
 
@@ -18,6 +18,9 @@ class UIEventType(StrEnum):
     TURN_FAILED = "turn_failed"
     MODE_CHANGED = "mode_changed"
     MODEL_CHANGED = "model_changed"
+    APPROVAL_REQUESTED = "approval_requested"
+    USER_INTERRUPTED = "user_interrupted"
+    SESSION_CLOSED = "session_closed"
 
 
 class UIEvent(BaseModel):
