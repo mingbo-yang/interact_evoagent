@@ -41,6 +41,7 @@ class Agent:
         memory_store: Any = None,
         token_budget: int = DEFAULT_TOKEN_BUDGET,
         keep_recent_tokens: int = DEFAULT_KEEP_RECENT_TOKENS,
+        steering: Any = None,
     ):
         self.workspace = Path(workspace)
         self.tool_registry = tool_registry or create_builtin_registry(self.workspace)
@@ -84,6 +85,7 @@ class Agent:
         self._memory_context: str = ""
         self._token_budget = token_budget
         self._keep_recent_tokens = keep_recent_tokens
+        self.steering = steering
 
     def _get_provider(self, role: str):
         """Get a provider for a role, falling back to default."""
@@ -146,6 +148,7 @@ class Agent:
             ask_fallback="allow",
             token_budget=self._token_budget,
             keep_recent_tokens=self._keep_recent_tokens,
+            steering=self.steering,
         )
 
         user_content = task

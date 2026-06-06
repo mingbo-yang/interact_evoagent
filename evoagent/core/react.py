@@ -37,6 +37,10 @@ from evoagent.tools.schema import ToolResult
 ApprovalHook = Callable[[str, dict], Awaitable[bool]]
 ToolEventHook = Callable[[str, str, dict], Awaitable[Any]]
 
+
+class _ToolCancelled(Exception):
+    """Raised internally when a tool execution is cancelled via steering."""
+
 # Tools that only read state and have no side effects, so several of them may
 # be executed concurrently within a single tool-call round. ``git_status`` is
 # deliberately excluded: ``git status`` can refresh and write the git index.
@@ -179,6 +183,7 @@ class ReActEngine:
         keep_recent_tokens: int = DEFAULT_KEEP_RECENT_TOKENS,
         enable_compaction: bool = True,
         tool_timeout: float | None = None,
+        steering: Any = None,
     ):
         self.model_router = model_router
         self.tool_registry = tool_registry
@@ -199,6 +204,9 @@ class ReActEngine:
         # Optional wall-clock cap per tool execution (None = no outer cap; tools
         # still enforce their own internal timeouts).
         self.tool_timeout = tool_timeout
+        # Optional out-of-band steering/interrupt controller (see
+        # evoagent.core.steering.SteeringController). None disables steering.
+        self.steering = steering
         # Serializes event emission so concurrent read-only tools cannot
         # interleave/corrupt a shared event sink.
         self._emit_lock = asyncio.Lock()
@@ -237,6 +245,18 @@ class ReActEngine:
         tool_rounds, step = 0, 0
         while tool_rounds < self.max_tool_rounds and step < self.max_steps:
             step += 1
+            # Steering checkpoint: inject queued user messages, then honor a
+            # graceful stop / cancel before issuing another model call.
+            if self.steering is not None:
+                for text in self.steering.drain_injections():
+                    messages.append(Message(role=MessageRole.USER, content=text))
+                    await self._emit("steering_injected", "", {"text": text[:200]})
+                if self.steering.stop_requested:
+                    result.stop_reason = "interrupted"
+                    result.final_text = (
+                        self._last_text(messages) or "Execution interrupted by user."
+                    )
+                    return result
             if self.enable_compaction:
                 compacted, changed = compact_messages(
                     messages,
@@ -311,6 +331,18 @@ class ReActEngine:
         prompts are never issued concurrently.
         """
         action_type, target, risk = classify_tool(tc.name, tc.arguments)
+
+        if (
+            self.steering is not None
+            and action_type == "file_write"
+            and self.steering.is_forbidden(target)
+        ):
+            note = f"User forbade modifying '{target}'."
+            tr = ToolResult(call_id=tc.id, name=tc.name, success=False, error=note)
+            msg = Message(role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name,
+                          content=note)
+            return tr, msg, [f"{tc.name}: {note}"]
+
         decision = self.permission_policy.check(action_type, target, risk_level=risk)
 
         if decision == PermissionDecision.DENY:
@@ -350,10 +382,7 @@ class ReActEngine:
         await self._emit("tool_call_started", tc.name, {"arguments": tc.arguments})
         try:
             coro = self.tool_registry.run_tool(tc.name, tc.arguments, call_id=tc.id)
-            if self.tool_timeout is not None:
-                tr = await asyncio.wait_for(coro, timeout=self.tool_timeout)
-            else:
-                tr = await coro
+            tr = await self._await_tool(coro)
             ok = bool(getattr(tr, "success", False))
             out = getattr(tr, "output", "") or getattr(tr, "error", "") or ""
             if not isinstance(tr, ToolResult):
@@ -362,6 +391,10 @@ class ReActEngine:
                                 error=getattr(tr, "error", None))
             if not ok and getattr(tr, "error", None):
                 errors.append(f"{tc.name}: {tr.error}")
+        except _ToolCancelled:
+            ok, out = False, f"Tool '{tc.name}' was cancelled by user."
+            tr = ToolResult(call_id=tc.id, name=tc.name, success=False, error=str(out))
+            errors.append(f"{tc.name}: cancelled")
         except TimeoutError:
             ok, out = False, f"Tool '{tc.name}' timed out after {self.tool_timeout}s."
             tr = ToolResult(call_id=tc.id, name=tc.name, success=False, error=str(out))
@@ -377,6 +410,49 @@ class ReActEngine:
         )
         msg = Message(role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name, content=str(out))
         return tr, msg, errors
+
+    async def _await_tool(self, coro):
+        """Await a tool coroutine, honoring tool_timeout and steering cancel.
+
+        Without steering this is a plain ``wait_for`` (or direct await). With a
+        steering controller, the execution races the controller's cancel event
+        so a long-running tool (e.g. a shell command) can be interrupted.
+        """
+        if self.steering is None:
+            if self.tool_timeout is not None:
+                return await asyncio.wait_for(coro, timeout=self.tool_timeout)
+            return await coro
+
+        task = asyncio.ensure_future(coro)
+        cancel_wait = asyncio.ensure_future(self.steering.cancel_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {task, cancel_wait},
+                timeout=self.tool_timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            cancel_wait.cancel()
+
+        if task in done:
+            return task.result()
+
+        # Either cancelled or timed out: stop the in-flight tool.
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+        if self.steering.cancelled:
+            raise _ToolCancelled()
+        raise TimeoutError()
+
+    @staticmethod
+    def _last_text(messages) -> str:
+        for m in reversed(messages):
+            if getattr(m, "content", ""):
+                return m.content
+        return ""
 
     async def _run_tool_calls(self, tool_calls, result: ReActRunResult) -> list[Message]:
         """Execute a round of tool calls and return one message per call.
