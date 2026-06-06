@@ -17,6 +17,20 @@ LOGO_LINES = [
 
 _PAD = 3  # horizontal panel padding
 
+# An original, cute "floating companion" mascot (NOT a reproduction of any
+# copyrighted character). Unicode variant with an ASCII fallback so it renders
+# on any terminal. Each tuple is (text, style).
+_MASCOT_UNICODE = [
+    [("  ✦ ", "evo.warning"), ("·", "evo.faint"), (" ✦", "evo.warning")],
+    [(" (", "evo.faint"), (" ◡‿◡ ", "evo.primary"), (")", "evo.faint")],
+    [("  ╰─╯", "evo.secondary")],
+]
+_MASCOT_ASCII = [
+    [("  *  ", "evo.warning"), (".", "evo.faint"), (" *", "evo.warning")],
+    [(" (", "evo.faint"), (" ^_^ ", "evo.primary"), (")", "evo.faint")],
+    [("  \\_/", "evo.secondary")],
+]
+
 
 def _pad_to(text: Text, width: int) -> Text:
     """Right-pad a Text with spaces to an exact display width."""
@@ -24,6 +38,17 @@ def _pad_to(text: Text, width: int) -> Text:
     if gap > 0:
         text.append(" " * gap)
     return text
+
+
+def _mascot() -> list[Text]:
+    spans = _MASCOT_UNICODE if sym("ok") == "✓" else _MASCOT_ASCII
+    out: list[Text] = []
+    for row in spans:
+        t = Text()
+        for chunk, style in row:
+            t.append(chunk, style=style)
+        out.append(t)
+    return out
 
 
 def render_banner(version: str, model_label: str, mode: str, workspace: str,
@@ -45,11 +70,17 @@ def render_banner(version: str, model_label: str, mode: str, workspace: str,
 
     lines: list[Text] = []
 
-    # Logo / tagline.
-    logo = Text()
-    logo.append("▟█▙  ", style="evo.logo")
-    logo.append("autonomous coding agent", style="evo.muted")
-    lines.append(_pad_to(logo, inner))
+    # Mascot + brand/tagline beside the middle mascot line.
+    mascot = _mascot()
+    brand_at = 1  # attach the brand to the mascot's middle row
+    for i, m in enumerate(mascot):
+        row = m.copy()
+        if i == brand_at:
+            row.append("   ")
+            row.append("EvoAgent", style="evo.heading")
+            row.append("  ·  ", style="evo.faint")
+            row.append("autonomous coding agent", style="evo.muted")
+        lines.append(_pad_to(row, inner))
     lines.append(Text(" " * inner))
 
     # Info rows — manual two-column layout for perfect alignment.

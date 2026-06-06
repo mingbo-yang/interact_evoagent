@@ -320,6 +320,7 @@ async def run_interactive():
                 tools,
                 router,
                 config,
+                console=console if (HAS_RICH and console) else None,
             )
             if handled == "exit":
                 store.save(session)
@@ -378,7 +379,7 @@ async def run_interactive():
 
 def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
                     providers=None, models=None, tools=None, router=None,
-                    config: EvoAgentConfig | None = None) -> str:
+                    config: EvoAgentConfig | None = None, console=None) -> str:
     parts = cmd.strip().split()
     command = parts[0].lower()
 
@@ -498,23 +499,55 @@ def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
         return "ok"
 
     if command == "/status":
-        print(f"Session: {session.session_id}")
-        print(f"Mode: {session.mode.value}")
-        print(f"Messages: {len(session.messages)}")
-        print(f"Turns: {len(session.turns)}")
-        print(f"Plan: {'active' if session.current_plan else 'none'}")
-        if providers:
-            for pid, status in providers.status_summary().items():
-                print(f"  {pid}: {status}")
+        if console:
+            from evoagent.cli.ui import render as R
+            R.section(console, "Session")
+            R.kv(console, [
+                ("id", session.session_id),
+                ("mode", session.mode.value),
+                ("messages", str(len(session.messages))),
+                ("turns", str(len(session.turns))),
+                ("plan", "active" if session.current_plan else "none"),
+            ])
+            if providers:
+                rows = list(providers.status_summary().items())
+                if rows:
+                    console.print()
+                    R.section(console, "Providers")
+                    R.kv(console, [(p, s) for p, s in rows])
+        else:
+            print(f"Session: {session.session_id}")
+            print(f"Mode: {session.mode.value}")
+            print(f"Messages: {len(session.messages)}")
+            print(f"Turns: {len(session.turns)}")
+            print(f"Plan: {'active' if session.current_plan else 'none'}")
+            if providers:
+                for pid, status in providers.status_summary().items():
+                    print(f"  {pid}: {status}")
         return "ok"
 
     if command == "/help":
-        print("Session:  /new /resume /fork /clear /reset /exit")
-        print("Runtime:  /mode /model /plan /status /compact")
-        print("Display:  /verbose /debug /diff /cost /tokens")
-        print("Model:    /model list /model status /model <provider>/<id>")
-        print("Tools:    /tools /permissions /tool show <id>")
-        print("Exit:     /exit  Ctrl+D  Esc Esc (idle prompt)")
+        groups = [
+            ("Session", "/new  /resume  /fork  /clear  /reset  /exit"),
+            ("Runtime", "/mode  /model  /plan  /status  /compact"),
+            ("Display", "/verbose  /debug  /diff  /cost  /tokens"),
+            ("Model", "/model list  ·  /model <provider>/<id>  ·  /model status"),
+            ("Tools", "/tools list  ·  /tool show <id>  ·  /permissions"),
+            ("Exit", "/exit   Ctrl+D   Esc Esc (idle)"),
+        ]
+        if console:
+            from rich.table import Table
+            grid = Table.grid(padding=(0, 3))
+            grid.add_column(style="evo.heading", justify="left", min_width=9)
+            grid.add_column(style="evo.muted")
+            for name, cmds in groups:
+                grid.add_row(name, cmds)
+            console.print()
+            console.print(grid)
+            console.print()
+        else:
+            for name, cmds in groups:
+                print(f"{name:9s} {cmds}")
         return "ok"
 
     if command == "/tools":
@@ -537,10 +570,28 @@ def _handle_command(cmd: str, session: ConversationSession, store: SessionStore,
                 print(f"Tool '{name}' not found.")
             return "ok"
         if len(parts) > 1 and parts[1] == "list":
-            for t in sorted(tools.list_tools()) if hasattr(tools, 'list_tools') else []:
-                tool = tools.get(t)
-                risk = tool.risk_level.value if hasattr(tool, 'risk_level') else '?'
-                print(f"  {t:20s}  risk:{risk}")
+            names = sorted(tools.list_tools()) if hasattr(tools, 'list_tools') else []
+            if console:
+                from rich.table import Table
+                from rich.text import Text as _T
+                _risk_style = {"low": "evo.success", "medium": "evo.warning",
+                               "high": "evo.error"}
+                grid = Table.grid(padding=(0, 3))
+                grid.add_column(style="evo.tool.name", justify="left", min_width=16)
+                grid.add_column(justify="left")
+                for t in names:
+                    tool = tools.get(t)
+                    risk = tool.risk_level.value if hasattr(tool, 'risk_level') else '?'
+                    grid.add_row(t, _T(risk, style=_risk_style.get(risk, "evo.muted")))
+                console.print()
+                console.print(grid)
+                console.print(_T(f"\n  {len(names)} tools registered",
+                                 style="evo.faint"))
+            else:
+                for t in names:
+                    tool = tools.get(t)
+                    risk = tool.risk_level.value if hasattr(tool, 'risk_level') else '?'
+                    print(f"  {t:20s}  risk:{risk}")
             return "ok"
         print("Usage: /tools list | /tools show <name>")
         return "ok"
