@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0
+- Deep engineering audit: fixed 31 verified bugs across planning, tools, sandbox,
+  memory, RAG/retrieval, workflow, models, and CLI (see reports/v0.5.0/audit-findings.md).
+- Planner now passes tool parameter schemas to the model so Agent.run can
+  actually execute tools (previously all tool calls failed validation).
+- Real-provider tool-call message history fixed (parallel tool_calls HTTP 400);
+  loop final-answer no longer shadowed by the FINISH placeholder.
+- Security: PatchManager workspace containment; ASK permission tier is now
+  fail-closed at the execution boundary.
+- Reliability: subprocess UTF-8 decoding; retry now actually retries transient
+  errors; cost/token tracking wired; eval test_command runs in the task workspace.
+- 15 new regression tests; full suite 452 passing; ruff and compileall clean.
+
 ## v0.3.0 (current)
 - Benchmark suites: tool_use (20), toy_code (20), memory (10 pairs), RAG (10)
 - Enhanced EvalReport: CSV export, comparison mode
