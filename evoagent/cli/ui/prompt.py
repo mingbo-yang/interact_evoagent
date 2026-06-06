@@ -38,29 +38,51 @@ def _clip_to_width(text: str, width: int) -> str:
 
 
 def render_toolbar_text(model: str, status: str = "", width: int = 80) -> str:
-    """Return a width-fitted, single-colour toolbar string."""
+    """Return a width-fitted, single-colour toolbar string.
+
+    Layout is intentionally two-sided:
+    left  = model + optional session status
+    right = keyboard hints
+
+    The gap between them expands/contracts with terminal width, so wide
+    terminals look spacious while narrow terminals degrade gracefully instead
+    of cramming every token together.
+    """
     width = max(20, width)
-    # Prefer graceful degradation over a hard mid-word cutoff:
-    # full -> no /help -> no status -> compact hints -> final ellipsis.
-    candidates = [
-        (28, True, "↑↓ history  ·  Enter send  ·  Esc Esc quit  ·  /help"),
-        (24, True, "↑↓ history  ·  Enter send  ·  Esc Esc quit"),
-        (24, True, "↑↓ history  ·  ↵ send  ·  esc esc"),
-        (22, False, "↑↓ history  ·  ↵ send  ·  esc esc"),
-        (18, False, "↑↓ · ↵ · esc"),
-        (18, False, ""),
+    if width < 60:
+        status = ""
+    hint_variants = [
+        "↑↓ history   ↵ send   esc esc quit   /help",
+        "↑↓ history   ↵ send   esc esc",
+        "↑↓ history   ↵ send",
+        "↑↓   ↵   esc",
+        "↑↓",
+        "",
     ]
-    text = ""
-    for model_w, include_status, hints in candidates:
-        model_part = _clip_to_width(model, model_w)
-        text = f"  model {model_part}"
-        if include_status and status:
-            text += f"  ·  {status}"
-        if hints:
-            text += f"  ·  {hints}"
-        if get_cwidth(text) <= width:
-            break
-    text = _clip_to_width(text, width)
+
+    # Reserve more room for model/status on wide terminals, less on narrow ones.
+    model_budget = max(10, min(34, width // 3))
+    status_budget = max(0, min(28, width // 4))
+
+    for hints in hint_variants:
+        left = f"model {_clip_to_width(model, model_budget)}"
+        if status:
+            left += f"  ·  {_clip_to_width(status, status_budget)}"
+        right = hints
+
+        if right:
+            min_gap = 4 if width >= 72 else 2
+            total = get_cwidth(left) + min_gap + get_cwidth(right) + 2
+            if total <= width:
+                gap = " " * (width - get_cwidth(left) - get_cwidth(right) - 2)
+                return f" {left}{gap}{right} "
+        else:
+            text = f" {left} "
+            if get_cwidth(text) <= width:
+                return text + " " * (width - get_cwidth(text))
+
+    # Extremely narrow: model only.
+    text = " " + _clip_to_width(f"model {model}", width - 2) + " "
     return text + " " * max(0, width - get_cwidth(text))
 
 

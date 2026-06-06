@@ -5,6 +5,9 @@ headers, and key/value tables so the interactive loop stays clean and the
 styling is consistent and easy to evolve.
 """
 
+import shutil
+import sys
+
 from rich.console import Console, Group
 from rich.text import Text
 
@@ -242,6 +245,80 @@ class LiveToolReporter:
             except Exception:
                 pass
             self._status = None
+
+
+class ThinkingReporter:
+    """Thinking spinner plus a bottom-pinned toolbar.
+
+    ``prompt_toolkit`` owns the bottom toolbar only while the prompt application
+    is active. After the user presses Enter, that app exits, so a normal Rich
+    ``status`` spinner makes the toolbar disappear during model latency. This
+    reporter keeps the spinner lightweight and separately pins a single-colour
+    toolbar to the terminal's bottom row using save-cursor / move / restore
+    escape sequences. The toolbar is cleared when thinking stops.
+    """
+
+    def __init__(self, console: Console, get_model, get_status):
+        self.console = console
+        self.get_model = get_model
+        self.get_status = get_status
+        self._status = None
+        self._toolbar_visible = False
+
+    def start(self) -> None:
+        if self._status is not None:
+            return
+        try:
+            self._status = self.console.status(
+                "thinking", spinner="dots", spinner_style="evo.spinner"
+            )
+            self._status.start()
+            self._draw_bottom_toolbar()
+        except Exception:
+            self._status = None
+            # Fallback: show a stable line rather than failing the turn.
+            self.console.print(Text("thinking", style="evo.reasoning"))
+
+    def stop(self) -> None:
+        if self._status is not None:
+            try:
+                self._status.stop()
+            except Exception:
+                pass
+            self._status = None
+        self._clear_bottom_toolbar()
+
+    def _draw_bottom_toolbar(self) -> None:
+        if not self.console.is_terminal:
+            return
+        from evoagent.cli.ui.prompt import render_toolbar_text
+
+        size = shutil.get_terminal_size((self.console.width or 80, 24))
+        width = max(20, size.columns)
+        row = max(1, size.lines)
+        text = render_toolbar_text(self.get_model(), self.get_status(), width)
+        # Save cursor, move to last row, clear it, draw a single-colour toolbar,
+        # then restore cursor. 24-bit colours match PROMPT_STYLE bottom-toolbar.
+        sys.stdout.write(
+            "\x1b7"
+            f"\x1b[{row};1H"
+            "\x1b[2K"
+            "\x1b[48;2;27;31;42m\x1b[38;2;184;192;212m"
+            f"{text}"
+            "\x1b[0m"
+            "\x1b8"
+        )
+        sys.stdout.flush()
+        self._toolbar_visible = True
+
+    def _clear_bottom_toolbar(self) -> None:
+        if not self._toolbar_visible or not self.console.is_terminal:
+            return
+        size = shutil.get_terminal_size((self.console.width or 80, 24))
+        row = max(1, size.lines)
+        sys.stdout.write("\x1b7" f"\x1b[{row};1H" "\x1b[2K" "\x1b8")
+        sys.stdout.flush()
+        self._toolbar_visible = False
 
 
 def mode_card(console: Console, mode: str) -> None:

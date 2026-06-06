@@ -171,28 +171,28 @@ async def run_interactive():
     _tool_reporter = (
         _render.LiveToolReporter(console) if (HAS_RICH and console) else None
     )
-    _thinking = {"status": None}
+    _thinking_reporter = (
+        _render.ThinkingReporter(
+            console,
+            get_model=lambda: _model_display(_current_model_selection, config),
+            get_status=lambda: f"{len(session.messages)} msgs · {len(session.turns)} turns",
+        )
+        if (HAS_RICH and console)
+        else None
+    )
+    _thinking = {"active": False}
 
     def _start_thinking() -> None:
-        if not (HAS_RICH and console) or _thinking["status"] is not None:
+        if _thinking_reporter is None or _thinking["active"]:
             return
-        try:
-            _thinking["status"] = console.status(
-                "thinking", spinner="dots", spinner_style="evo.spinner"
-            )
-            _thinking["status"].start()
-        except Exception:
-            _thinking["status"] = None
+        _thinking_reporter.start()
+        _thinking["active"] = True
 
     def _stop_thinking() -> None:
-        status = _thinking.get("status")
-        if status is None:
+        if _thinking_reporter is None or not _thinking["active"]:
             return
-        try:
-            status.stop()
-        except Exception:
-            pass
-        _thinking["status"] = None
+        _thinking_reporter.stop()
+        _thinking["active"] = False
 
     async def _on_tool(evt):
         name = evt.payload.get("tool_name", "?")

@@ -181,7 +181,14 @@ def test_toolbar_text_single_colour_and_width_fitted():
         )
         assert get_cwidth(text) == width
         assert "\n" not in text
-    assert "↑↓" in render_toolbar_text("deepseek-chat", "0 msgs", width=80)
+    wide = render_toolbar_text("deepseek-chat", "0 msgs", width=120)
+    assert "↑↓ history" in wide
+    assert "↵ send" in wide
+    # Wide toolbar should breathe: left model/status and right hints are
+    # separated by a visible elastic gap, not crammed together.
+    assert "0 msgs" in wide and "    " in wide
+    narrow = render_toolbar_text("deepseek-chat", "0 msgs", width=28)
+    assert get_cwidth(narrow) == 28
 
 
 def test_approval_frame_width_with_long_command():
