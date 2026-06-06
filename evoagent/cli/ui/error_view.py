@@ -1,23 +1,16 @@
 """Error view — clean error display with secret redaction."""
 
-import re
-
 from evoagent.core.ids import generate_id
-
-_SECRET_PATTERNS = [
-    (re.compile(r'(api_key|apikey|api-key)\s*[:=]\s*["\']?([^"\'&\s]+)', re.IGNORECASE), "api_key"),
-    (re.compile(r'Authorization\s*[:=]\s*["\']?(Bearer\s+)?([^"\'&\s]+)', re.IGNORECASE), "auth"),
-    (re.compile(r'sk-[a-zA-Z0-9]{20,}'), "sk_key"),
-    (re.compile(r'password\s*[:=]\s*["\']?([^"\'&\s]+)', re.IGNORECASE), "password"),
-    (re.compile(r'secret\s*[:=]\s*["\']?([^"\'&\s]+)', re.IGNORECASE), "secret"),
-]
+from evoagent.core.redaction import redact_text
 
 
 def redact_secrets(text: str) -> str:
-    """Redact API keys, tokens, and passwords from text."""
-    for pattern, _ in _SECRET_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
-    return text
+    """Redact API keys, tokens, and passwords from text.
+
+    Thin backward-compatible wrapper over the central
+    :func:`evoagent.core.redaction.redact_text`.
+    """
+    return redact_text(text)
 
 
 def render_error(exception: Exception, debug: bool = False) -> str:

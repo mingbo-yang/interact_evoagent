@@ -6,6 +6,7 @@ from pathlib import Path
 from evoagent.conversation.schema import TurnRecord
 from evoagent.conversation.session import ConversationSession
 from evoagent.core.message import Message
+from evoagent.core.redaction import redact_obj
 from evoagent.planning.schema import Plan
 
 
@@ -30,7 +31,9 @@ class SessionStore:
             "turns": [t.model_dump() for t in session.turns],
             "messages": [m.model_dump() for m in session.messages[-100:]],
         }
-        (session_dir / "session.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        (session_dir / "session.json").write_text(
+            json.dumps(redact_obj(data), indent=2, ensure_ascii=False)
+        )
         return session.session_id
 
     def load(self, session_id: str) -> ConversationSession | None:

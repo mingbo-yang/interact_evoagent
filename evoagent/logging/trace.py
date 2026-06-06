@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from evoagent.core.ids import generate_id
+from evoagent.core.redaction import redact_obj
 from evoagent.core.result import AgentResult
 from evoagent.core.state import RuntimeState
 from evoagent.core.time import utc_now_iso
@@ -73,7 +74,7 @@ class TraceRecorder:
             "started_at": utc_now_iso(),
         }
         (self._current_dir / "metadata.json").write_text(
-            json.dumps(meta, indent=2, ensure_ascii=False)
+            json.dumps(redact_obj(meta), indent=2, ensure_ascii=False)
         )
 
         return run_id
@@ -109,8 +110,9 @@ class TraceRecorder:
             return
         state.updated_at = utc_now_iso()
         state.run_id = self._current_run_id or state.run_id
+        data = redact_obj(state.model_dump(mode="json"))
         (self._current_dir / "state.json").write_text(
-            state.model_dump_json(indent=2, ensure_ascii=False)
+            json.dumps(data, indent=2, ensure_ascii=False)
         )
 
     def load_state(self) -> RuntimeState | None:
@@ -128,8 +130,9 @@ class TraceRecorder:
         """Save AgentResult to final_result.json."""
         if not self._current_dir:
             return
+        data = redact_obj(result.model_dump(mode="json"))
         (self._current_dir / "final_result.json").write_text(
-            result.model_dump_json(indent=2, ensure_ascii=False)
+            json.dumps(data, indent=2, ensure_ascii=False)
         )
         if self._logger:
             self._logger.log(

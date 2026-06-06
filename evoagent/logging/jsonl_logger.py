@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from evoagent.core.redaction import redact_obj
 from evoagent.logging.event import Event, EventType
 
 
@@ -26,7 +27,10 @@ class JSONLEventLogger:
         self._file = open(str(self.path), "a", encoding="utf-8")
 
     def log_event(self, event: Event) -> None:
-        line = event.model_dump_json(ensure_ascii=False)
+        # Redact secrets from the structured payload before serializing so the
+        # written line stays valid, reloadable JSON.
+        data = redact_obj(event.model_dump(mode="json"))
+        line = json.dumps(data, ensure_ascii=False)
         self._file.write(line + "\n")
         self._file.flush()
 
