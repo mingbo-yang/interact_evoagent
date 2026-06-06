@@ -13,7 +13,7 @@
   errors; cost/token tracking wired; eval test_command runs in the task workspace.
 - 15 new regression tests; full suite 452 passing; ruff and compileall clean.
 
-## v0.3.0 (current)
+## v0.3.0
 - Benchmark suites: tool_use (20), toy_code (20), memory (10 pairs), RAG (10)
 - Enhanced EvalReport: CSV export, comparison mode
 - MkDocs documentation website

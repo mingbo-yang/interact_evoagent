@@ -19,7 +19,7 @@ def render_banner(version: str, model_label: str, mode: str, workspace: str,
     """Render the welcome banner.
 
     Args:
-        version: Version string like 'v0.4.1'.
+        version: Version string like 'v0.5.0'.
         model_label: e.g. 'deepseek:v4-pro'.
         mode: Agent mode (default/plan/auto).
         workspace: Current workspace path.

@@ -13,7 +13,7 @@
   </a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
   <img alt="Status" src="https://img.shields.io/badge/status-research%20MVP-yellow">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-401%20passed-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-452%20passed-brightgreen">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
@@ -687,7 +687,7 @@ Otherwise install development dependencies manually according to `pyproject.toml
 
 ## Quick Start
 
-### Interactive Mode (v0.4.0)
+### Interactive Mode (v0.5.0)
 
 ```bash
 evoagent
