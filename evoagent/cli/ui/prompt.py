@@ -8,27 +8,28 @@ from prompt_toolkit.styles import Style
 from evoagent.cli.ui.completion import SlashCompleter
 
 PROMPT_STYLE = Style.from_dict({
-    "prompt": "#00ffff bold",
-    "mode": "#ffff00",
-    "model": "#888888",
-    "separator": "#00ffff",
-    "toolbar": "bg:#333333 #ffffff",
+    "prompt": "#7dd3fc bold",
+    "mode": "#fcd34d",
+    "model": "#8b93a7",
+    "separator": "#7dd3fc bold",
+    "bracket": "#5b6478",
+    "toolbar": "bg:#1f2430 #8b93a7",
+    "toolbar.accent": "bg:#1f2430 #7dd3fc",
 })
 
 
 def create_prompt_session(mode: str = "default", model_label: str = "deepseek:chat",
                           history_path: str = ".evoagent/history",
                           bottom_text: str = "") -> PromptSession:
-    mode_colors = {"default": "ansicyan", "plan": "ansiyellow", "auto": "ansimagenta"}
-    mode_color = mode_colors.get(mode, "ansicyan")
+    mode_colors = {"default": "#7dd3fc", "plan": "#fcd34d", "auto": "#c4b5fd"}
+    mode_color = mode_colors.get(mode, "#7dd3fc")
 
     prompt_text = [
-        ("class:prompt", "EvoAgent"),
-        ("", "["),
-        ("fg:" + mode_color, mode),
-        ("", "]"),
-        ("class:model", "[" + model_label[:20] + "]"),
-        ("class:separator", " ❯ "),
+        ("class:bracket", "  "),
+        ("fg:" + mode_color + " bold", mode),
+        ("class:bracket", " · "),
+        ("class:model", model_label[:20]),
+        ("class:separator", "  ❯ "),
     ]
 
     bindings = KeyBindings()
@@ -85,7 +86,15 @@ def create_prompt_session(mode: str = "default", model_label: str = "deepseek:ch
         history = None
 
     def _toolbar():
-        return [("class:toolbar", bottom_text or f"{mode} · {model_label[:20]}")]
+        text = bottom_text or f"{mode} · {model_label[:20]}"
+        return [
+            ("class:toolbar", "  "),
+            ("class:toolbar", text),
+            ("class:toolbar", "    "),
+            ("class:toolbar", "↵ send"),
+            ("class:toolbar", "   esc·esc quit"),
+            ("class:toolbar", "   /help"),
+        ]
 
     return PromptSession(
         message=prompt_text, style=PROMPT_STYLE, completer=SlashCompleter(),

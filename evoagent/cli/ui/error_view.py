@@ -23,19 +23,21 @@ def render_error(exception: Exception, debug: bool = False) -> str:
     Returns:
         Formatted error string.
     """
+    from evoagent.cli.ui.symbols import sym
+
     error_id = generate_id("err")
     msg = redact_secrets(str(exception))
 
     lines = [
-        "✗ Turn failed",
-        f"  {msg[:200]}",
-        f"  Error ID: {error_id}",
+        f" {sym('fail')} Turn failed",
+        f"   {msg[:200]}",
+        f"   {sym('dot')} error id {error_id}",
     ]
     if not debug:
-        lines.append("  Run /debug to see details.")
+        lines.append(f"   {sym('dot')} run /debug for details")
     else:
         import traceback
         tb = traceback.format_exc()
-        lines.append(f"\n  {redact_secrets(tb)[:2000]}")
+        lines.append(f"\n   {redact_secrets(tb)[:2000]}")
 
     return "\n".join(lines)

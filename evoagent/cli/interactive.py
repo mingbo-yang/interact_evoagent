@@ -148,6 +148,7 @@ async def run_interactive():
         print(f"EvoAgent {version} | {_current_model_selection} | {session.mode.value}")
 
     # EventBus for tool activity rendering
+    from evoagent.cli.ui import render as _render
     from evoagent.cli.ui.event_bus import EventBus
     from evoagent.cli.ui.events import UIEventType
     event_bus = EventBus()
@@ -155,23 +156,17 @@ async def run_interactive():
         name = evt.payload.get("tool_name", "?")
         if evt.type == UIEventType.TOOL_CALL_STARTED:
             if HAS_RICH and console:
-                console.print(f"◐ {name}", style="evo.tool")
+                _render.tool_running(console, name, evt.payload.get("arguments"))
             else:
-                print(f"  ◐ {name}")
+                print(f"  * {name}")
         else:
             out_full = evt.payload.get("output", "")
-            out_lines = out_full.split("\n")
-            if len(out_lines) > 3:
-                out = (
-                    "\n  ".join(out_lines[:3])
-                    + f"\n  … ({len(out_lines)} lines total, /tool show for full output)"
-                )
-            else:
-                out = "\n  ".join(out_lines)
+            ok = evt.type != UIEventType.TOOL_CALL_FAILED
             if HAS_RICH and console:
-                console.print(f"● {name}\n  {out}", style="evo.tool")
+                _render.tool_done(console, name, out_full, success=ok)
             else:
-                print(f"  ● {name}")
+                glyph = "+" if ok else "x"
+                print(f"  {glyph} {name}")
     async def _on_approval(evt):
         tool = evt.payload.get("tool_name", "?")
         cmd = str(evt.payload.get("arguments", {}))
@@ -185,9 +180,9 @@ async def run_interactive():
             )
             if choice in ("yes", "remember"):
                 session.metadata[f"approved_{evt.payload.get('tool_call_id','')}"] = True
-                console.print("Approved.", style="evo.success")
+                _render.success(console, "Approved")
             else:
-                console.print("Denied.", style="evo.error")
+                _render.error(console, "Denied")
             return choice
         else:
             print(f"\nApprove: {tool}? (y/n): ", end="")
@@ -231,10 +226,11 @@ async def run_interactive():
                 user_input = await pt_session.prompt_async()
             elif HAS_RICH and console:
                 prompt = Text()
-                prompt.append("EvoAgent", style="evo.prompt")
-                prompt.append(f"[{session.mode.value}]", style=f"evo.{session.mode.value}")
-                prompt.append(f"[{label}]", style="evo.muted")
-                prompt.append(" ❯ ", style="evo.prompt")
+                prompt.append("  ", style="")
+                prompt.append(session.mode.value, style=f"evo.{session.mode.value}")
+                prompt.append(" · ", style="evo.faint")
+                prompt.append(label, style="evo.muted")
+                prompt.append("  ❯ ", style="evo.prompt")
                 console.print(prompt, end="")
                 sys.stdout.flush()
                 line = sys.stdin.readline()
@@ -340,7 +336,7 @@ async def run_interactive():
                 async for chunk in runtime.handle_user_message_stream(user_input):
                     if chunk.startswith("·"):
                         if chunk.strip():
-                            console.print(chunk, style="evo.reasoning")
+                            _render.reasoning(console, chunk)
                     else:
                         response_parts.append(chunk)
                 response = "".join(response_parts)
@@ -351,21 +347,15 @@ async def run_interactive():
                 if len(tool_names) >= 3:
                     uniq = list(dict.fromkeys(tool_names))
                     label = (
-                        "Explore"
+                        "Explored"
                         if "list_directory" in uniq or "grep" in uniq
-                        else "Execute"
+                        else "Executed"
                     )
-                    console.print(
-                        f"● {label}({', '.join(uniq[:3])}… +{len(tool_names)} tools)",
-                        style="evo.tool",
-                    )
-                parts = [f"{elapsed:.1f}s"]
-                if tc:
-                    parts.append(f"{tc} tool calls")
+                    _render.activity_summary(console, label, tool_names)
                 from rich.markdown import Markdown
-                md = Markdown(response, code_theme="monokai")
-                console.print(md)
-                console.print(f"({', '.join(parts)})", style="evo.muted")
+                console.print()
+                console.print(Markdown(response, code_theme="monokai"))
+                _render.response_footer(console, elapsed, tc)
             else:
                 response = await runtime.handle_user_message(user_input)
                 elapsed = __import__('time').monotonic() - t0

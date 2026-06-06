@@ -17,10 +17,16 @@ class ApprovalChoice:
 
 
 APPROVAL_STYLE = Style.from_dict({
-    "selected": "bg:#444444 #ffffff bold",
-    "normal": "",
-    "title": "bold",
-    "info": "#888888",
+    "frame": "#5b6478",
+    "title": "#7dd3fc bold",
+    "cmd": "#e5e9f0",
+    "selected": "bg:#2a3142 #7dd3fc bold",
+    "normal": "#8b93a7",
+    "desc": "#5b6478",
+    "risk.low": "#86efac",
+    "risk.medium": "#fcd34d",
+    "risk.high": "#fca5a5 bold",
+    "info": "#8b93a7",
 })
 
 
@@ -31,21 +37,42 @@ async def prompt_approval(action: str, command: str, description: str = "",
     Returns 'yes', 'remember', or 'no'.
     """
     choices = [
-        ApprovalChoice("1. Yes", "yes", "Approve this action once"),
-        ApprovalChoice("2. Yes, and remember", "remember", "Skip future prompts for this pattern"),
-        ApprovalChoice("3. No", "no", "Deny and let the agent try another approach"),
+        ApprovalChoice("Yes", "yes", "approve this action once"),
+        ApprovalChoice("Yes, and don't ask again", "remember",
+                       "skip future prompts for this pattern"),
+        ApprovalChoice("No", "no", "deny and let the agent try another approach"),
     ]
     selected = [0]
+    risk_key = risk if risk in ("low", "medium", "high") else "medium"
 
     def get_text():
-        lines = ["─" * 50, f"\n{action}", f"\n  {command}"]
+        lines = [
+            ("class:frame", "╭─ "),
+            ("class:title", "Permission required"),
+            ("class:frame", " " + "─" * max(2, 40 - len(action))),
+            ("", "\n"),
+            ("class:frame", "│  "),
+            ("class:title", action),
+            ("class:frame", "   ["),
+            (f"class:risk.{risk_key}", f"{risk_key} risk"),
+            ("class:frame", "]\n"),
+            ("class:frame", "│  "),
+            ("class:cmd", command[:72]),
+            ("", "\n"),
+        ]
         if description:
-            lines.append(f"\n  {description}")
-        lines.append("\n")
+            lines += [("class:frame", "│  "),
+                      ("class:desc", description[:72]), ("", "\n")]
+        lines.append(("class:frame", "│\n"))
         for i, c in enumerate(choices):
-            prefix = "❯ " if i == selected[0] else "  "
-            style = "class:selected" if i == selected[0] else "class:normal"
-            lines.append((style, f"{prefix}{c.label}  {c.description}\n"))
+            sel = i == selected[0]
+            prefix = "│  ❯ " if sel else "│    "
+            style = "class:selected" if sel else "class:normal"
+            lines.append(("class:frame", prefix))
+            lines.append((style, f"{i + 1}. {c.label}"))
+            lines.append(("class:desc", f"   {c.description}"))
+            lines.append(("", "\n"))
+        lines.append(("class:frame", "╰" + "─" * 44))
         return lines
 
     kb = KeyBindings()
