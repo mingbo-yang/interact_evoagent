@@ -87,14 +87,26 @@ class Agent:
     # ── Core API ──────────────────────────────────────────────────────
 
     async def run(self, task: str) -> AgentResult:
-        """Run a task with memory retrieval and writing.
+        """Run a task on the iterative ReAct loop, with memory.
+
+        The agent reads the task, calls the LLM with the available tools, runs
+        any tool calls it requests, feeds the results back, and repeats until
+        the model produces a final answer (read-decide-act). This replaces the
+        older static plan-ahead path so the agent can inspect results before
+        deciding its next action.
 
         Args:
             task: Natural language task description.
 
         Returns:
-            AgentResult with success, final_answer, state, and trace.
+            AgentResult with success, final_answer, state, and cost.
         """
+        from evoagent.core.cost import CostSnapshot
+        from evoagent.core.ids import generate_id
+        from evoagent.core.message import Message, MessageRole
+        from evoagent.core.react import ReActEngine
+        from evoagent.core.state import RunStatus, RuntimeState
+
         # Pre-run: retrieve relevant memories
         self._memory_context = ""
         if self.memory_store:
@@ -106,18 +118,84 @@ class Agent:
             except Exception:
                 pass
 
-        result = await self._loop.run(task, context=self._memory_context)
-
-        # Post-run: write memory
-        if self.memory_store and result.state:
+        run_id = generate_id("run")
+        if self.trace_recorder:
             try:
-                from evoagent.memory.writer import MemoryWriter
-                writer = MemoryWriter(self.memory_store)
-                writer.write_from_run(result.state, result.success)
+                run_id = self.trace_recorder.start_run(task)
             except Exception:
                 pass
 
-        return result
+        # Fresh per-run cost so AgentResult totals are not cumulative.
+        run_cost = CostSnapshot()
+        engine = ReActEngine(
+            model_router=self.model_router,
+            tool_registry=self.tool_registry,
+            permission_policy=self.permission_policy or PermissionPolicy(),
+            role="executor",
+            cost=run_cost,
+            # Non-interactive: auto-approve ASK actions (deny rules still apply),
+            # matching the legacy plan-ahead loop which ran tools unconditionally.
+            ask_fallback="allow",
+        )
+
+        user_content = task
+        if self._memory_context:
+            user_content = f"{task}\n\n{self._memory_context}"
+        messages = [Message(role=MessageRole.USER, content=user_content)]
+        system_prompt = self._build_system_prompt()
+
+        run_result = await engine.run_turn(messages, system_prompt=system_prompt)
+
+        # Build a RuntimeState snapshot so memory writing and AgentResult.state
+        # continue to work as before.
+        state = RuntimeState(run_id=run_id, task=task)
+        state.messages = messages
+        state.tool_results = list(run_result.tool_results)
+        state.errors = list(run_result.errors)
+        state.status = RunStatus.SUCCEEDED if run_result.success else RunStatus.FAILED
+
+        agent_result = AgentResult(
+            run_id=run_id,
+            task=task,
+            success=run_result.success,
+            final_answer=run_result.final_text,
+            state=state,
+            steps_taken=run_result.llm_calls,
+            tool_calls=run_result.tool_calls,
+            total_tokens=run_cost.total_tokens,
+            total_cost=run_cost.cost_usd,
+            error="; ".join(run_result.errors) if not run_result.success else None,
+            metadata={"cost": run_cost.summary(), "stop_reason": run_result.stop_reason},
+        )
+
+        if self.trace_recorder:
+            try:
+                self.trace_recorder.save_final_result(agent_result)
+            except Exception:
+                pass
+
+        # Post-run: write memory
+        if self.memory_store and agent_result.state:
+            try:
+                from evoagent.memory.writer import MemoryWriter
+                writer = MemoryWriter(self.memory_store)
+                writer.write_from_run(agent_result.state, agent_result.success)
+            except Exception:
+                pass
+
+        return agent_result
+
+    def _build_system_prompt(self) -> str:
+        """System prompt for the iterative coding agent."""
+        return (
+            "You are EvoAgent, an autonomous coding agent operating in a "
+            f"workspace at '{self.workspace}'. Complete the user's task by "
+            "calling the available tools. Inspect the workspace (read files, "
+            "list directories, search) before making changes, then act. After "
+            "each tool result, decide the next action. When the task is fully "
+            "done, reply with a concise final answer and no further tool calls. "
+            "Do not claim success without verifying via tools."
+        )
 
     async def chat(self, message: str) -> str:
         """Simple chat without tool calling.
