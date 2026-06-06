@@ -234,6 +234,15 @@ class LiveToolReporter:
             self._status = None
         tool_done(self.console, name, output, success=success)
 
+    def clear(self) -> None:
+        """Stop any active spinner without printing a result line."""
+        if self._status is not None:
+            try:
+                self._status.stop()
+            except Exception:
+                pass
+            self._status = None
+
 
 def mode_card(console: Console, mode: str) -> None:
     """Confirmation for a mode switch: glyph + arrow + a one-line description."""

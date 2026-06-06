@@ -189,8 +189,14 @@ async def prompt_approval(action: str, command: str, description: str = "",
         always_hide_cursor=False,
         wrap_lines=False,
     )
-    app = Application(layout=Layout(HSplit([content])), key_bindings=kb,
-                      style=APPROVAL_STYLE, full_screen=False)
+    app = Application(
+        layout=Layout(HSplit([content])),
+        key_bindings=kb,
+        style=APPROVAL_STYLE,
+        full_screen=False,
+        erase_when_done=True,
+        refresh_interval=0.1,
+    )
 
     await app.run_async()
     return done[0] or "no"

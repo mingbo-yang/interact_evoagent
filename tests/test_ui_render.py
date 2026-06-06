@@ -168,6 +168,22 @@ def test_prompt_history_path_parent_created(tmp_path):
     assert history_path.parent.exists()
 
 
+def test_toolbar_text_single_colour_and_width_fitted():
+    from prompt_toolkit.utils import get_cwidth
+
+    from evoagent.cli.ui.prompt import render_toolbar_text
+
+    for width in (28, 48, 80, 120):
+        text = render_toolbar_text(
+            "deepseek-chat-with-a-very-long-model-name",
+            "123 msgs · 45 turns",
+            width=width,
+        )
+        assert get_cwidth(text) == width
+        assert "\n" not in text
+    assert "↑↓" in render_toolbar_text("deepseek-chat", "0 msgs", width=80)
+
+
 def test_approval_frame_width_with_long_command():
     from prompt_toolkit.utils import get_cwidth
 

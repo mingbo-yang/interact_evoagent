@@ -4,9 +4,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
+from prompt_toolkit.utils import get_cwidth
 
 from evoagent.cli.ui.completion import SlashCompleter
 
@@ -18,14 +20,48 @@ PROMPT_STYLE = Style.from_dict({
     "mode.plan": "#fcd34d bold",
     "mode.auto": "#c4b5fd bold",
     "pad": "",
-    # bottom toolbar
-    "bottom-toolbar": "bg:#1b1f2a #8b93a7",
-    "tb.key": "bg:#1b1f2a #5b6478",
-    "tb.val": "bg:#1b1f2a #7dd3fc",
-    "tb.sep": "bg:#1b1f2a #3b4252",
-    "tb.dim": "bg:#1b1f2a #8b93a7",
-    "tb.hint": "bg:#1b1f2a #5b6478",
+    # Pure, single-colour bottom toolbar: no rainbow accents, no wrapping.
+    "bottom-toolbar": "bg:#1b1f2a #b8c0d4",
 })
+
+
+def _clip_to_width(text: str, width: int) -> str:
+    """Clip text to display width, preserving a single-line toolbar."""
+    if get_cwidth(text) <= width:
+        return text
+    out = ""
+    for ch in text:
+        if get_cwidth(out + ch + "…") > width:
+            return out + "…"
+        out += ch
+    return out
+
+
+def render_toolbar_text(model: str, status: str = "", width: int = 80) -> str:
+    """Return a width-fitted, single-colour toolbar string."""
+    width = max(20, width)
+    # Prefer graceful degradation over a hard mid-word cutoff:
+    # full -> no /help -> no status -> compact hints -> final ellipsis.
+    candidates = [
+        (28, True, "↑↓ history  ·  Enter send  ·  Esc Esc quit  ·  /help"),
+        (24, True, "↑↓ history  ·  Enter send  ·  Esc Esc quit"),
+        (24, True, "↑↓ history  ·  ↵ send  ·  esc esc"),
+        (22, False, "↑↓ history  ·  ↵ send  ·  esc esc"),
+        (18, False, "↑↓ · ↵ · esc"),
+        (18, False, ""),
+    ]
+    text = ""
+    for model_w, include_status, hints in candidates:
+        model_part = _clip_to_width(model, model_w)
+        text = f"  model {model_part}"
+        if include_status and status:
+            text += f"  ·  {status}"
+        if hints:
+            text += f"  ·  {hints}"
+        if get_cwidth(text) <= width:
+            break
+    text = _clip_to_width(text, width)
+    return text + " " * max(0, width - get_cwidth(text))
 
 
 def create_prompt_session(
@@ -57,19 +93,12 @@ def create_prompt_session(
         return [(cls, "❯ ")]
 
     def _toolbar():
-        parts = [
-            ("class:bottom-toolbar", "  "),
-            ("class:tb.key", "model "),
-            ("class:tb.val", _model()[:28]),
-        ]
-        status = _status()
-        if status:
-            parts += [("class:tb.sep", "   ·   "), ("class:tb.dim", status)]
-        parts += [
-            ("class:tb.sep", "      "),
-            ("class:tb.hint", "↑↓ history   ↵ send   esc esc quit   /help"),
-        ]
-        return parts
+        try:
+            width = get_app().output.get_size().columns
+        except Exception:
+            width = 80
+        return [("class:bottom-toolbar",
+                 render_toolbar_text(_model(), _status(), width))]
 
     bindings = KeyBindings()
 

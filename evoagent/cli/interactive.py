@@ -211,6 +211,12 @@ async def run_interactive():
                 glyph = "+" if ok else "x"
                 print(f"  {glyph} {name}")
     async def _on_approval(evt):
+        # An approval prompt is its own mini-application. Stop any active live
+        # status first, otherwise the first frame can be drawn over a spinner
+        # line and leave a truncated/duplicated top border.
+        _stop_thinking()
+        if _tool_reporter is not None:
+            _tool_reporter.clear()
         tool = evt.payload.get("tool_name", "?")
         cmd = str(evt.payload.get("arguments", {}))
         if HAS_RICH and console:
