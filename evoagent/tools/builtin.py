@@ -27,7 +27,9 @@ def create_builtin_registry(workspace: Path, auto_approve: bool = False,
                             enable_undo: bool = True,
                             enable_todos: bool = True,
                             enable_tests: bool = True,
-                            enable_web: bool = True) -> ToolRegistry:
+                            enable_web: bool = True,
+                            enable_subagents: bool = False,
+                            model_router: object = None) -> ToolRegistry:
     """Create a ToolRegistry populated with all built-in tools.
 
     Args:
@@ -50,12 +52,17 @@ def create_builtin_registry(workspace: Path, auto_approve: bool = False,
             ``web_search`` network tools. These are gated by the permission
             policy (``network`` action, high risk) and enforce an egress policy
             that blocks private/loopback targets.
+        enable_subagents: When True, register the parallel ``task`` tool that
+            delegates sub-tasks to fresh sub-agents. Requires ``model_router``.
+            Sub-agents are created without this tool so they cannot recurse.
+        model_router: ModelRouter used by the ``task`` tool's sub-agents.
+            Required when ``enable_subagents`` is True.
 
     Returns:
         ToolRegistry with read_file, write_file, edit_file, multi_edit,
         apply_patch, undo_last, write_todos, list_todos, run_tests,
-        list_directory, grep, glob, outline, bash, python, git_status,
-        git_diff, web_fetch, web_search.
+        list_directory, grep, glob, outline, code_search, bash, python,
+        git_status, git_diff, web_fetch, web_search (and optionally task).
     """
     registry = ToolRegistry(workspace=workspace)
     snapshots = WorkspaceSnapshotManager(workspace) if enable_undo else None
@@ -86,4 +93,7 @@ def create_builtin_registry(workspace: Path, auto_approve: bool = False,
     if enable_web:
         registry.register(WebFetchTool())
         registry.register(WebSearchTool())
+    if enable_subagents and model_router is not None:
+        from evoagent.tools.subagent_tools import SubagentTool
+        registry.register(SubagentTool(workspace, model_router))
     return registry
