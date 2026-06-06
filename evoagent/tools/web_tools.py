@@ -24,6 +24,10 @@ _USER_AGENT = (
     "Mozilla/5.0 (compatible; EvoAgent/1.0; +https://github.com/mingbo-yang/EvoAgent)"
 )
 
+# Tavily search API (optional fallback). The key is read ONLY from the
+# TAVILY_API_KEY environment variable — it must never be hard-coded or logged.
+_TAVILY_ENDPOINT = "https://api.tavily.com/search"
+
 _SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"[ \t\r\f\v]+")
@@ -36,6 +40,12 @@ def _egress_allowlist() -> list[str] | None:
     if not raw:
         return None
     return [h.strip() for h in raw.split(",") if h.strip()]
+
+
+def _tavily_api_key() -> str | None:
+    """Tavily API key from the TAVILY_API_KEY environment variable, if set."""
+    key = os.getenv("TAVILY_API_KEY", "").strip()
+    return key or None
 
 
 def html_to_text(content: str) -> str:
@@ -182,6 +192,43 @@ def _parse_ddg(body: str, max_results: int) -> list[tuple[str, str, str]]:
     return out
 
 
+async def _tavily_search(
+    client: httpx.AsyncClient, query: str, max_results: int,
+    allowlist: list[str] | None,
+) -> list[tuple[str, str, str]]:
+    """Query the Tavily search API and return (title, url, snippet) triples.
+
+    The API key is read from TAVILY_API_KEY and sent only in the Authorization
+    header of this single HTTPS request; it is never persisted or logged.
+    """
+    key = _tavily_api_key()
+    if not key:
+        return []
+    ok, reason = check_url_allowed(_TAVILY_ENDPOINT, allowlist=allowlist)
+    if not ok:
+        raise PermissionError(reason)
+    resp = await client.post(
+        _TAVILY_ENDPOINT,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json={
+            "query": query,
+            "max_results": max_results,
+            "search_depth": "basic",
+        },
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Tavily HTTP {resp.status_code}")
+    data = resp.json()
+    out: list[tuple[str, str, str]] = []
+    for r in (data.get("results") or [])[:max_results]:
+        out.append((
+            str(r.get("title", "")).strip(),
+            str(r.get("url", "")).strip(),
+            str(r.get("content", "")).strip(),
+        ))
+    return out
+
+
 class WebSearchTool(BaseTool):
     name = "web_search"
     description = (
@@ -191,11 +238,23 @@ class WebSearchTool(BaseTool):
     input_schema = WebSearchInput
     risk_level = RiskLevel.HIGH
 
-    # (endpoint_url_template, parser) tried in order until one yields results.
+    # HTML scraping backends, tried in order first (free, no key required).
     _BACKENDS = (
         ("https://www.bing.com/search?q={q}", "_parse_bing"),
         ("https://html.duckduckgo.com/html/?q={q}", "_parse_ddg"),
     )
+
+    @staticmethod
+    def _format(query, hits, engine):
+        results = [
+            f"{i + 1}. {title}\n   {href}\n   {snippet}".rstrip()
+            for i, (title, href, snippet) in enumerate(hits)
+        ]
+        return ToolResult(
+            call_id=generate_id("call"), name="web_search", success=True,
+            output="\n\n".join(results),
+            metadata={"query": query, "results": len(results), "engine": engine},
+        )
 
     async def run(self, query: str, max_results: int = 5) -> ToolResult:
         allowlist = _egress_allowlist()
@@ -205,13 +264,16 @@ class WebSearchTool(BaseTool):
             timeout=_DEFAULT_TIMEOUT, headers={"User-Agent": _USER_AGENT},
             trust_env=False,
         ) as client:
+            # 1) Free HTML backends first (Bing -> DuckDuckGo).
             for tmpl, parser_name in self._BACKENDS:
                 url = tmpl.format(q=quote_plus(query))
                 try:
                     resp = await _fetch_with_egress(client, url, allowlist)
                 except PermissionError as e:
-                    return ToolResult(call_id=generate_id("call"), name=self.name,
-                                      success=False, error=f"Egress blocked: {e}")
+                    # A free backend being unreachable/blocked must not prevent
+                    # the Tavily fallback; record and move on.
+                    last_error = f"Egress blocked: {e}"
+                    continue
                 except (httpx.HTTPError, RuntimeError) as e:
                     last_error = f"{type(e).__name__}: {e}"
                     continue
@@ -220,16 +282,20 @@ class WebSearchTool(BaseTool):
                     continue
                 hits = parsers[parser_name](resp.text, max_results)
                 if hits:
-                    results = [
-                        f"{i + 1}. {title}\n   {href}\n   {snippet}".rstrip()
-                        for i, (title, href, snippet) in enumerate(hits)
-                    ]
-                    return ToolResult(
-                        call_id=generate_id("call"), name=self.name, success=True,
-                        output="\n\n".join(results),
-                        metadata={"query": query, "results": len(results),
-                                  "engine": urlparse(url).netloc},
-                    )
+                    return self._format(query, hits, urlparse(url).netloc)
+
+            # 2) Fallback to the Tavily API only if the free backends produced
+            #    nothing and a TAVILY_API_KEY is configured.
+            if _tavily_api_key():
+                try:
+                    hits = await _tavily_search(client, query, max_results, allowlist)
+                    if hits:
+                        return self._format(query, hits, "tavily")
+                except PermissionError as e:
+                    last_error = f"Tavily egress blocked: {e}"
+                except (httpx.HTTPError, RuntimeError, ValueError) as e:
+                    last_error = f"Tavily failed: {type(e).__name__}: {e}"
+
         if last_error:
             return ToolResult(call_id=generate_id("call"), name=self.name,
                               success=False, error=f"Search failed: {last_error}")

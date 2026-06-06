@@ -207,3 +207,146 @@ async def test_web_search_no_results(monkeypatch):
     res = await tool.run(query="nothing")
     assert res.success
     assert "No results" in res.output
+
+
+def _patch_post(monkeypatch, handler):
+    async def fake_post(self, url, headers=None, json=None):
+        return handler(url, headers, json)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+
+def _empty_html_get(monkeypatch):
+    """Make all HTML backends return no parseable results."""
+    def handler(url):
+        return httpx.Response(
+            200, content=b"<html></html>",
+            headers={"content-type": "text/html"},
+            request=httpx.Request("GET", url),
+        )
+    _patch_get(monkeypatch, handler)
+
+
+@pytest.mark.asyncio
+async def test_tavily_used_as_fallback_when_html_empty(monkeypatch):
+    _allow_egress(monkeypatch)
+    _empty_html_get(monkeypatch)
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-FAKE-TESTKEY")
+    captured = {}
+
+    def post_handler(url, headers, json):
+        captured["url"] = url
+        captured["auth"] = headers.get("Authorization")
+        captured["query"] = json.get("query")
+        return httpx.Response(
+            200,
+            json={"results": [
+                {"title": "Result A", "url": "https://a.com", "content": "snippet A"},
+                {"title": "Result B", "url": "https://b.com", "content": "snippet B"},
+            ]},
+            request=httpx.Request("POST", url),
+        )
+
+    _patch_post(monkeypatch, post_handler)
+    res = await WebSearchTool().run(query="async python", max_results=3)
+    assert res.success
+    assert res.metadata["engine"] == "tavily"
+    assert "Result A" in res.output
+    assert "https://a.com" in res.output
+    assert res.metadata["results"] == 2
+    # Correct endpoint + Bearer auth + query forwarded.
+    assert captured["url"] == "https://api.tavily.com/search"
+    assert captured["auth"] == "Bearer tvly-FAKE-TESTKEY"
+    assert captured["query"] == "async python"
+
+
+@pytest.mark.asyncio
+async def test_tavily_not_called_when_html_succeeds(monkeypatch):
+    _allow_egress(monkeypatch)
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-FAKE-TESTKEY")
+    bing = (
+        '<li class="b_algo"><h2><a href="https://x.com/a">Hit</a></h2>'
+        '<div class="b_caption"><p>snippet</p></div></li>'
+    )
+
+    def get_handler(url):
+        return httpx.Response(
+            200, content=bing.encode(),
+            headers={"content-type": "text/html"},
+            request=httpx.Request("GET", url),
+        )
+
+    _patch_get(monkeypatch, get_handler)
+
+    called = {"post": False}
+
+    def post_handler(url, headers, json):
+        called["post"] = True
+        return httpx.Response(200, json={"results": []},
+                              request=httpx.Request("POST", url))
+
+    _patch_post(monkeypatch, post_handler)
+    res = await WebSearchTool().run(query="anything")
+    assert res.success
+    assert res.metadata["engine"] != "tavily"
+    # HTML backend satisfied the query, so the paid API must NOT be called.
+    assert called["post"] is False
+
+
+@pytest.mark.asyncio
+async def test_tavily_not_called_without_key(monkeypatch):
+    _allow_egress(monkeypatch)
+    _empty_html_get(monkeypatch)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+
+    called = {"post": False}
+
+    def post_handler(url, headers, json):
+        called["post"] = True
+        return httpx.Response(200, json={"results": []},
+                              request=httpx.Request("POST", url))
+
+    _patch_post(monkeypatch, post_handler)
+    res = await WebSearchTool().run(query="nothing")
+    assert res.success
+    assert "No results" in res.output
+    assert called["post"] is False
+
+
+@pytest.mark.asyncio
+async def test_tavily_http_error_surfaces(monkeypatch):
+    _allow_egress(monkeypatch)
+    _empty_html_get(monkeypatch)
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-FAKE-TESTKEY")
+
+    def post_handler(url, headers, json):
+        return httpx.Response(401, json={"error": "unauthorized"},
+                              request=httpx.Request("POST", url))
+
+    _patch_post(monkeypatch, post_handler)
+    res = await WebSearchTool().run(query="nothing")
+    assert res.success is False
+    assert "Tavily" in res.error
+
+
+@pytest.mark.asyncio
+async def test_tavily_fallback_when_html_unreachable(monkeypatch):
+    """An unreachable/egress-blocked HTML backend must still fall back to Tavily."""
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-FAKE-TESTKEY")
+
+    # HTML egress check blocks bing/ddg; Tavily endpoint is allowed.
+    def egress(url, *a, **k):
+        return ("tavily" in url, "ok" if "tavily" in url else "blocked")
+    monkeypatch.setattr(web_tools, "check_url_allowed", egress)
+
+    def post_handler(url, headers, json):
+        return httpx.Response(
+            200,
+            json={"results": [{"title": "T", "url": "https://t.com", "content": "c"}]},
+            request=httpx.Request("POST", url),
+        )
+
+    _patch_post(monkeypatch, post_handler)
+    res = await WebSearchTool().run(query="x")
+    assert res.success
+    assert res.metadata["engine"] == "tavily"
+    assert "https://t.com" in res.output

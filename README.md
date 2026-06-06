@@ -148,8 +148,24 @@ API keys are referenced by environment-variable name (`api_key_env`) and are **n
 
 | Variable | Purpose |
 | --- | --- |
-| `DEEPSEEK_API_KEY` | DeepSeek API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (required for the model) |
+| `TAVILY_API_KEY` | Optional Tavily search API key — enables the `web_search` fallback |
 | `EVOAGENT_EGRESS_ALLOWLIST` | Optional comma-separated host allowlist for web tools |
+
+### Web search
+
+The `web_search` tool works **without any API key** by scraping Bing and
+DuckDuckGo HTML results. For higher reliability you can optionally enable the
+[Tavily](https://tavily.com) search API as a **fallback** — it is only called
+when the free HTML backends return nothing or are unreachable, so it conserves
+your Tavily credits:
+
+```bash
+export TAVILY_API_KEY="tvly-..."   # optional; never commit this value
+```
+
+When set, search resolution is: **Bing → DuckDuckGo → Tavily**. The key is read
+only from the environment and is never written to source, logs, or sessions.
 
 ## CLI
 
