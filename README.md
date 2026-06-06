@@ -53,28 +53,26 @@ Every component (models, tools, memory, retrieval, workflow nodes, evaluators) i
 ## Architecture
 
 ```
-                          ┌──────────────────────────┐
-        user task ───────▶│         Agent            │
-                          │  (memory, checkpoints,   │
-                          │   tracing, steering)     │
-                          └────────────┬─────────────┘
-                                       │
-                          ┌────────────▼─────────────┐
-                          │       ReAct Engine       │
-                          │  loop · compaction · cost│
-                          └──┬───────────┬───────────┘
-                             │           │
-              ┌──────────────▼──┐   ┌────▼─────────────┐
-              │  Model Router    │   │  Tool Registry   │
-              │ (OpenAI-compat / │   │ files · shell ·  │
-              │   DeepSeek)      │   │ web · code_search│
-              └────────┬─────────┘   │ · MCP · task     │
-                       │             └────┬─────────────┘
-                       │                  │
-              ┌────────▼─────────┐  ┌─────▼──────────┐
-              │ Permission Policy│  │  Retrieval +   │
-              │  deny>ask>allow  │  │  Vector Store  │
-              └──────────────────┘  └────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Agent  -  memory · checkpoints · tracing · steering │
+└───────────────────────────┬──────────────────────────┘
+                            ▼
+┌──────────────────────────────────────────────────────┐
+│  ReAct Engine  -  loop · compaction · cost           │
+└───────────────────────────┬──────────────────────────┘
+                            ▼
+┌──────────────────────────────────────────────────────┐
+│  Model Router  -  OpenAI-compatible / DeepSeek       │
+└───────────────────────────┬──────────────────────────┘
+                            ▼
+┌──────────────────────────────────────────────────────┐
+│  Tool Registry  -  files · shell · web ·             │
+│  code_search · MCP · task                            │
+└───────────────────────────┬──────────────────────────┘
+                            ▼
+┌──────────────────────────────────────────────────────┐
+│  Permission Policy  +  Retrieval / Vector Store      │
+└──────────────────────────────────────────────────────┘
 ```
 
 ## Installation
