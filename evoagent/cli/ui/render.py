@@ -24,56 +24,62 @@ def _fmt_args(args: dict) -> str:
 
 
 def tool_running(console: Console, name: str, args: dict | None = None) -> None:
-    """Render a tool-call start line: a dim glyph + bold name + faint args."""
+    """Render a running tool line (column 0): spinner glyph + name + args."""
     line = Text()
-    line.append(f" {sym('running')} ", style="evo.spinner")
+    line.append(f"{sym('running')} ", style="evo.spinner")
     line.append(name, style="evo.tool.name")
     if args:
-        line.append("  ", style="")
+        line.append("  ")
         line.append(_fmt_args(args), style="evo.tool.args")
     console.print(line)
 
 
-def tool_done(console: Console, name: str, output: str = "",
-              success: bool = True) -> None:
-    """Render a tool-call result: status glyph + name, with indented output."""
-    glyph = sym("ok") if success else sym("fail")
-    style = "evo.success" if success else "evo.error"
-    head = Text()
-    head.append(f" {glyph} ", style=style)
-    head.append(name, style="evo.tool.name")
-
+def _body_block(output: str, console: Console) -> Text:
+    """Copilot-style indented output block: '  │ line' with a collapse note."""
+    out = Text()
     body = (output or "").rstrip("\n")
     if not body:
-        console.print(head)
-        return
-
-    max_w = max(40, (console.width or 80) - 6)
+        return out
+    max_w = max(40, (console.width or 80) - 4)
     lines = body.split("\n")
-    shown = lines[:_MAX_TOOL_OUT_LINES]
-    out = Text()
     bar = sym("tree_bar")
-    for ln in shown:
+    for ln in lines[:_MAX_TOOL_OUT_LINES]:
         if len(ln) > max_w:
             ln = ln[:max_w - 1] + "…"
-        out.append(f"   {bar} ", style="evo.faint")
+        out.append(f"  {bar} ", style="evo.faint")
         out.append(ln, style="evo.tool.out")
         out.append("\n")
-    if len(lines) > _MAX_TOOL_OUT_LINES:
-        out.append(f"   {bar} ", style="evo.faint")
-        out.append(
-            f"… {len(lines)} lines total · /tool last for full output",
-            style="evo.faint",
-        )
+    extra = len(lines) - _MAX_TOOL_OUT_LINES
+    if extra > 0:
+        out.append(f"  {bar} ", style="evo.faint")
+        out.append(f"+{extra} more lines · /tool last", style="evo.faint")
         out.append("\n")
-    console.print(Group(head, out))
+    return out
+
+
+def tool_done(console: Console, name: str, output: str = "",
+              success: bool = True) -> None:
+    """Render a finished tool call, Copilot-style.
+
+    A filled status dot + tool name header at column 0, followed by an indented
+    ``│``-prefixed output preview that collapses long output to '+N more lines'.
+    """
+    dot_style = "evo.success" if success else "evo.error"
+    head = Text()
+    head.append(f"{sym('done')} ", style=dot_style)
+    head.append(name, style="evo.tool.name")
+    body = _body_block(output, console)
+    if body.plain:
+        console.print(Group(head, body))
+    else:
+        console.print(head)
 
 
 def activity_summary(console: Console, label: str, tools: list[str]) -> None:
-    """Render a grouped activity summary for multi-tool turns."""
+    """Render a grouped activity summary for multi-tool turns (column 0)."""
     uniq = list(dict.fromkeys(tools))
     line = Text()
-    line.append(f" {sym('spark')} ", style="evo.secondary")
+    line.append(f"{sym('spark')} ", style="evo.secondary")
     line.append(label, style="evo.secondary")
     line.append(f"  {', '.join(uniq[:3])}", style="evo.muted")
     if len(tools) > 3:
@@ -91,29 +97,27 @@ def _fmt_tokens(n: int) -> str:
 
 def response_footer(console: Console, elapsed: float, tool_calls: int = 0,
                     tokens: int | None = None) -> None:
-    """Render the subtle footer beneath an assistant response."""
+    """Render the subtle footer beneath an assistant response (column 0)."""
     parts = [f"{elapsed:.1f}s"]
     if tool_calls:
         parts.append(f"{tool_calls} tool{'s' if tool_calls != 1 else ''}")
     if tokens:
         parts.append(_fmt_tokens(tokens))
     sep = f" {sym('dot')} "
-    line = Text("  ")  # left indent, aligns under the response
-    line.append(sep.join(parts), style="evo.faint")
-    console.print(line)
+    console.print(Text(sep.join(parts), style="evo.faint"))
 
 
 def reasoning(console: Console, text: str) -> None:
     line = Text()
-    line.append(f" {sym('reason')} ", style="evo.faint")
+    line.append(f"{sym('reason')} ", style="evo.faint")
     line.append(text.lstrip("· ").strip(), style="evo.reasoning")
     console.print(line)
 
 
 def message(console: Console, glyph_name: str, text: str, style: str) -> None:
-    """A single-line status message (info/success/warn/error)."""
+    """A single-line status message (info/success/warn/error) at column 0."""
     line = Text()
-    line.append(f" {sym(glyph_name)} ", style=style)
+    line.append(f"{sym(glyph_name)} ", style=style)
     line.append(text, style=style if glyph_name in ("fail", "warn") else "evo.text")
     console.print(line)
 
@@ -201,11 +205,11 @@ def mode_card(console: Console, mode: str) -> None:
     """Confirmation for a mode switch: glyph + arrow + a one-line description."""
     style = {"plan": "evo.plan", "auto": "evo.auto"}.get(mode, "evo.default")
     head = Text()
-    head.append(f" {sym('ok')} ", style="evo.success")
+    head.append(f"{sym('ok')} ", style="evo.success")
     head.append("mode", style="evo.muted")
     head.append(f"  {sym('arrow')}  ", style="evo.faint")
     head.append(mode, style=style)
-    desc = Text(f"     {_MODE_DESC.get(mode, '')}", style="evo.faint")
+    desc = Text(f"  {sym('tree_bar')} {_MODE_DESC.get(mode, '')}", style="evo.faint")
     console.print(head)
     console.print(desc)
 
@@ -213,10 +217,10 @@ def mode_card(console: Console, mode: str) -> None:
 def model_card(console: Console, label: str, detail: str = "") -> None:
     """Confirmation for a model switch: glyph + arrow + new model label."""
     head = Text()
-    head.append(f" {sym('ok')} ", style="evo.success")
+    head.append(f"{sym('ok')} ", style="evo.success")
     head.append("model", style="evo.muted")
     head.append(f"  {sym('arrow')}  ", style="evo.faint")
     head.append(label, style="evo.primary")
     console.print(head)
     if detail:
-        console.print(Text(f"     {detail}", style="evo.faint"))
+        console.print(Text(f"  {sym('tree_bar')} {detail}", style="evo.faint"))

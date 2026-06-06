@@ -51,11 +51,9 @@ def create_prompt_session(
     def _message():
         m = _mode()
         cls = f"class:mode.{m}" if m in _MODE_COLORS else "class:mode.default"
-        return [
-            ("class:pad", "  "),
-            (cls, m),
-            ("class:arrow", "  ❯ "),
-        ]
+        # Column-0 prompt: a single mode-coloured arrow marks each user turn so
+        # the input and the assistant reply share the same left edge.
+        return [(cls, "❯ ")]
 
     def _toolbar():
         parts = [

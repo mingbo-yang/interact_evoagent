@@ -9,7 +9,8 @@ import sys
 
 _UNICODE = {
     "prompt": "❯",
-    "running": "◇",
+    "running": "◐",
+    "done": "●",
     "ok": "✓",
     "fail": "✗",
     "warn": "▲",
@@ -27,6 +28,7 @@ _UNICODE = {
 _ASCII = {
     "prompt": ">",
     "running": "*",
+    "done": "*",
     "ok": "+",
     "fail": "x",
     "warn": "!",

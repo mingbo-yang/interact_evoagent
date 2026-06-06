@@ -67,7 +67,7 @@ def render_banner(version: str, model_label: str, mode: str, workspace: str,
             detected terminal size so the card always tracks the real width.
     """
     avail = width if width else shutil.get_terminal_size((80, 24)).columns
-    panel_width = max(46, min(avail, 110))
+    panel_width = max(46, avail)  # track the full available width
     inner = panel_width - 2 - 2 * _PAD  # borders + horizontal padding
     is_narrow = panel_width < 72
 

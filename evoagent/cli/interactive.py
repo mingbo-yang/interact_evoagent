@@ -242,9 +242,7 @@ async def run_interactive():
                 user_input = await pt_session.prompt_async()
             elif HAS_RICH and console:
                 prompt = Text()
-                prompt.append("  ")
-                prompt.append(session.mode.value, style=f"evo.{session.mode.value}")
-                prompt.append("  ❯ ", style="evo.prompt")
+                prompt.append("❯ ", style=f"evo.{session.mode.value}")
                 console.print(prompt, end="")
                 sys.stdout.flush()
                 line = sys.stdin.readline()

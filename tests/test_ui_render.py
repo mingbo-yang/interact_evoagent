@@ -65,7 +65,7 @@ def test_render_tool_output_truncated():
     big = "\n".join(f"line {i}" for i in range(30))
     R.tool_done(c, "grep", big, success=True)
     out = c.file.getvalue()
-    assert "lines total" in out
+    assert "more lines" in out
 
 
 def test_render_footer_and_messages():

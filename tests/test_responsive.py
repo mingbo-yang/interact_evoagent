@@ -71,7 +71,7 @@ def test_banner_tracks_width():
 
     narrow = _border_width(64)
     wide = _border_width(96)
-    capped = _border_width(140)
+    wider = _border_width(140)
     assert narrow == 64
     assert wide == 96
-    assert capped == 110  # readability cap
+    assert wider == 140  # tracks full width (no fixed cap)
