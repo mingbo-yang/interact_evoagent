@@ -129,7 +129,8 @@ class WriteFileTool(BaseTool):
             return ToolResult(
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=f"Written {len(content)} chars to {resolved}",
-                metadata={"path": str(resolved), "chars": len(content)},
+                metadata={"path": str(resolved), "chars": len(content),
+                          "changed_files": [str(resolved)]},
             )
         except Exception as e:
             return ToolResult(
@@ -171,7 +172,8 @@ class EditFileTool(BaseTool):
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=f"Replaced {res.count} occurrence(s) in {resolved}{note}",
                 metadata={"path": str(resolved), "replacements": res.count,
-                          "strategy": res.strategy},
+                          "strategy": res.strategy,
+                          "changed_files": [str(resolved)]},
             )
         except Exception as e:
             return ToolResult(
@@ -215,7 +217,8 @@ class MultiEditTool(BaseTool):
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=f"Applied {len(edit_objs)} edit(s) to {resolved}",
                 metadata={"path": str(resolved), "edits": len(edit_objs),
-                          "strategies": strategies},
+                          "strategies": strategies,
+                          "changed_files": [str(resolved)]},
             )
         except Exception as e:
             return ToolResult(call_id=generate_id("call"), name=self.name,
@@ -279,7 +282,8 @@ class ApplyPatchTool(BaseTool):
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=f"Applied patch to {len(new_contents)} file(s): "
                        + ", ".join(str(resolved_map[p]) for p in new_contents),
-                metadata={"files": [str(resolved_map[p]) for p in new_contents]},
+                metadata={"files": [str(resolved_map[p]) for p in new_contents],
+                          "changed_files": [str(resolved_map[p]) for p in new_contents]},
             )
         except Exception as e:
             return ToolResult(call_id=generate_id("call"), name=self.name,

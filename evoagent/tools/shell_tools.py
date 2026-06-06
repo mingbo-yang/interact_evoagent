@@ -11,15 +11,6 @@ from evoagent.sandbox.policy import PermissionPolicy
 from evoagent.tools.base import BaseTool, RiskLevel, resolve_workspace_path
 from evoagent.tools.schema import ToolResult
 
-# Maximum characters of captured command output returned to the caller/model.
-_MAX_OUTPUT_CHARS = 100_000
-
-
-def _truncate_output(text: str) -> str:
-    if len(text) > _MAX_OUTPUT_CHARS:
-        return text[:_MAX_OUTPUT_CHARS] + "\n... (output truncated)"
-    return text
-
 
 class BashInput(BaseModel):
     command: str = Field(..., description="The shell command to execute.")
@@ -69,9 +60,10 @@ class BashTool(BaseTool):
             return ToolResult(
                 call_id=generate_id("call"), name=self.name,
                 success=result.success,
-                output=_truncate_output(output.strip()) or "(no output)",
+                output=output.strip() or "(no output)",
                 error=None if result.success else f"Exit code: {result.exit_code}",
-                metadata={"exit_code": result.exit_code, "command": command},
+                metadata={"exit_code": result.exit_code, "command": command,
+                          "cwd": cwd or str(self.workspace)},
             )
 
         # Direct execution, bounded to the workspace.
@@ -96,9 +88,10 @@ class BashTool(BaseTool):
             return ToolResult(
                 call_id=generate_id("call"), name=self.name,
                 success=proc.returncode == 0,
-                output=_truncate_output(output.strip()) or "(no output)",
+                output=output.strip() or "(no output)",
                 error=None if proc.returncode == 0 else f"Exit code: {proc.returncode}",
-                metadata={"exit_code": proc.returncode, "command": command},
+                metadata={"exit_code": proc.returncode, "command": command,
+                          "cwd": work_dir},
             )
         except subprocess.TimeoutExpired:
             return ToolResult(

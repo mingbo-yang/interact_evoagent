@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from evoagent.core.ids import generate_id
 from evoagent.core.time import utc_now_iso
+from evoagent.tools.output import DEFAULT_MAX_OUTPUT_CHARS, truncate_head_tail
 from evoagent.tools.schema import ToolResult
 
 
@@ -41,6 +42,10 @@ class BaseTool(ABC):
     input_schema: type[BaseModel] = BaseModel
     output_schema: type[BaseModel] | None = None
     risk_level: RiskLevel = RiskLevel.LOW
+
+    # Per-tool character cap on returned output/error. Oversized text is
+    # head/tail truncated centrally in ``arun``. Set to ``None`` to opt out.
+    max_output_chars: int | None = DEFAULT_MAX_OUTPUT_CHARS
 
     # Hooks for future integration (Phase 5 PermissionPolicy, Phase 3 EventLogger)
     permission_check: Callable[[str, dict[str, Any]], bool] | None = None
@@ -148,6 +153,23 @@ class BaseTool(ABC):
             result.duration_ms = int((time.monotonic() - t0) * 1000)
         if not result.name:
             result.name = self.name
+
+        # Bound output/error so a single tool result cannot flood the context.
+        if self.max_output_chars:
+            if result.output:
+                new_output, out_meta = truncate_head_tail(
+                    result.output, self.max_output_chars, kind="output"
+                )
+                if out_meta:
+                    result.output = new_output
+                    result.metadata = {**(result.metadata or {}), **out_meta}
+            if result.error:
+                new_error, err_meta = truncate_head_tail(
+                    result.error, self.max_output_chars, kind="error"
+                )
+                if err_meta:
+                    result.error = new_error
+                    result.metadata = {**(result.metadata or {}), **err_meta}
 
         return result
 

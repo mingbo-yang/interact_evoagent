@@ -77,8 +77,6 @@ class PythonTool(BaseTool):
         output = proc.stdout
         if proc.stderr:
             output += "\n[stderr]\n" + proc.stderr
-        if len(output) > 100_000:
-            output = output[:100_000] + "\n... (output truncated)"
         return ToolResult(
             call_id=generate_id("call"), name=self.name,
             success=proc.returncode == 0,
