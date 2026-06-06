@@ -14,10 +14,17 @@ A single source of truth for the read-decide-act agent loop. The engine:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from evoagent.conversation.context import (
+    DEFAULT_KEEP_RECENT_TOKENS,
+    DEFAULT_TOKEN_BUDGET,
+    compact_messages,
+    estimate_tokens,
+)
 from evoagent.core.cost import CostSnapshot
 from evoagent.core.message import Message, MessageRole
 from evoagent.models.router import ModelRouter
@@ -72,6 +79,7 @@ class ReActRunResult:
     stop_reason: str = "final"  # final | max_tool_rounds | max_steps | provider_error | no_provider
     tool_calls: int = 0
     llm_calls: int = 0
+    compactions: int = 0
     tool_results: list[ToolResult] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     cost: CostSnapshot = field(default_factory=CostSnapshot)
@@ -90,7 +98,15 @@ def safe_messages(messages: list[Message], window: int = 50) -> list[Message]:
     assistant/tool group, so incomplete groups are dropped to keep the request
     valid (a ``tool_calls`` message must be answered for *every* id). Extra or
     duplicate tool responses for an id are also dropped.
+
+    A leading compaction summary (``metadata.compacted``) is pinned as an
+    anchor and always kept, so a long kept window can never push the digest of
+    the original task out of the request.
     """
+    anchor: Message | None = None
+    if messages and messages[0].metadata.get("compacted"):
+        anchor = messages[0]
+        messages = messages[1:]
     history = messages[-window:] if window and window > 0 else list(messages)
     # Drop leading orphan tool messages (the window may start mid-group).
     start = 0
@@ -127,7 +143,7 @@ def safe_messages(messages: list[Message], window: int = 50) -> list[Message]:
             continue
         safe.append(m)
         i += 1
-    return safe
+    return [anchor, *safe] if anchor is not None else safe
 
 
 class ReActEngine:
@@ -147,6 +163,9 @@ class ReActEngine:
         tool_event_hook: ToolEventHook | None = None,
         ask_fallback: str = "deny",
         history_window: int = 50,
+        token_budget: int = DEFAULT_TOKEN_BUDGET,
+        keep_recent_tokens: int = DEFAULT_KEEP_RECENT_TOKENS,
+        enable_compaction: bool = True,
     ):
         self.model_router = model_router
         self.tool_registry = tool_registry
@@ -161,6 +180,9 @@ class ReActEngine:
         # "deny" (safe library default) or "allow" (non-interactive Agent.run).
         self.ask_fallback = ask_fallback
         self.history_window = history_window
+        self.token_budget = token_budget
+        self.keep_recent_tokens = keep_recent_tokens
+        self.enable_compaction = enable_compaction
 
     async def run_turn(
         self,
@@ -183,9 +205,31 @@ class ReActEngine:
             result.errors.append("No model provider configured.")
             return result
 
+        # Reserve budget for the parts of the request that are not the message
+        # history (system prompt + tool schemas) so the combined request stays
+        # within the model's context window.
+        overhead = estimate_tokens(system_prompt)
+        try:
+            overhead += estimate_tokens(json.dumps(tools_schema))
+        except (TypeError, ValueError):
+            pass
+        effective_budget = max(2000, self.token_budget - overhead)
+
         tool_rounds, step = 0, 0
         while tool_rounds < self.max_tool_rounds and step < self.max_steps:
             step += 1
+            if self.enable_compaction:
+                compacted, changed = compact_messages(
+                    messages,
+                    token_budget=effective_budget,
+                    keep_recent_tokens=self.keep_recent_tokens,
+                    state_provider=self._context_state,
+                )
+                if changed:
+                    messages[:] = compacted
+                    result.compactions += 1
+                    await self._emit("context_compacted", "",
+                                     {"messages": len(messages)})
             request_msgs: list[Message] = []
             if system_prompt:
                 request_msgs.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
@@ -311,6 +355,13 @@ class ReActEngine:
             await self.tool_event_hook(event_type, tool_name, payload)
         except Exception:
             pass
+
+    def _context_state(self) -> str | None:
+        """Snapshot of durable state to preserve across compaction (todos)."""
+        store = getattr(self.tool_registry, "todo_store", None)
+        if store is not None and getattr(store, "items", None):
+            return "Current task list:\n" + store.format()
+        return None
 
     def _get_provider(self, role: str):
         try:

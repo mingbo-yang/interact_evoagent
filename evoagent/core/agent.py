@@ -3,6 +3,10 @@
 from pathlib import Path
 from typing import Any
 
+from evoagent.conversation.context import (
+    DEFAULT_KEEP_RECENT_TOKENS,
+    DEFAULT_TOKEN_BUDGET,
+)
 from evoagent.core.result import AgentResult
 from evoagent.logging.trace import TraceRecorder
 from evoagent.models.factory import MockLLMProvider
@@ -35,6 +39,8 @@ class Agent:
         permission_policy: PermissionPolicy | None = None,
         config: Any = None,
         memory_store: Any = None,
+        token_budget: int = DEFAULT_TOKEN_BUDGET,
+        keep_recent_tokens: int = DEFAULT_KEEP_RECENT_TOKENS,
     ):
         self.workspace = Path(workspace)
         self.tool_registry = tool_registry or create_builtin_registry(self.workspace)
@@ -76,6 +82,8 @@ class Agent:
         self.memory_store = memory_store
         self._config = config
         self._memory_context: str = ""
+        self._token_budget = token_budget
+        self._keep_recent_tokens = keep_recent_tokens
 
     def _get_provider(self, role: str):
         """Get a provider for a role, falling back to default."""
@@ -136,6 +144,8 @@ class Agent:
             # Non-interactive: auto-approve ASK actions (deny rules still apply),
             # matching the legacy plan-ahead loop which ran tools unconditionally.
             ask_fallback="allow",
+            token_budget=self._token_budget,
+            keep_recent_tokens=self._keep_recent_tokens,
         )
 
         user_content = task
