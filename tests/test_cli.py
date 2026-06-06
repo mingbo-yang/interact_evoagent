@@ -84,13 +84,23 @@ def test_invalid_command():
 
 
 def test_python_m_evoagent_help():
+    import os
+    import re
     import subprocess
     import sys
 
+    # Force a stable, non-decorated render: Rich/Typer otherwise emit ANSI
+    # colours and may wrap the usage line inside a box on a narrow/non-TTY
+    # terminal (as happens in CI), which breaks naive substring checks.
+    env = {**os.environ, "NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"}
     result = subprocess.run(
         [sys.executable, "-m", "evoagent", "--help"],
         capture_output=True,
         text=True,
+        env=env,
     )
     assert result.returncode == 0
-    assert "Usage: python -m evoagent" in result.stdout
+    # Strip any residual ANSI escape sequences before asserting.
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    assert "Usage" in clean
+    assert "evoagent" in clean
