@@ -1,23 +1,32 @@
 """OpenAICompatibleProvider — generic provider for any OpenAI-compatible API."""
 
+import asyncio
 import json
 import os
+import random
 from collections.abc import AsyncIterator
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
 from pydantic import BaseModel
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from evoagent.core.errors import ModelProviderError
 from evoagent.core.message import ToolCall
+from evoagent.core.redaction import redact_text as _redact
 from evoagent.models.base import BaseLLMProvider
 from evoagent.models.schema import LLMRequest, LLMResponse, ModelConfig
+
+# Status codes that are worth retrying: rate limiting and transient server-side
+# failures. Everything else (4xx other than 429) is a client error and is
+# surfaced immediately.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# Upper bound on how long we will wait between attempts, even if the server's
+# Retry-After header asks for more. Prevents a single call from hanging the
+# agent for minutes.
+_MAX_BACKOFF_SECONDS = 120.0
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
@@ -183,36 +192,94 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             payload["response_format"] = request.response_format
         return payload
 
-    @retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-    )
+    @staticmethod
+    def _parse_retry_after(value: str | None) -> float | None:
+        """Parse a Retry-After header (seconds or HTTP-date) into seconds."""
+        if not value:
+            return None
+        value = value.strip()
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            pass
+        try:
+            from datetime import datetime
+            retry_dt = parsedate_to_datetime(value)
+            if retry_dt is not None:
+                if retry_dt.tzinfo is None:
+                    retry_dt = retry_dt.replace(tzinfo=UTC)
+                delta = (retry_dt - datetime.now(UTC)).total_seconds()
+                return max(0.0, delta)
+        except (TypeError, ValueError, OverflowError):
+            pass
+        return None
+
+    def _backoff_delay(self, attempt: int, retry_after: float | None) -> float:
+        """Delay before the next attempt.
+
+        Honors the server's ``Retry-After`` when present (capped), otherwise
+        uses exponential backoff with full jitter.
+        """
+        if retry_after is not None:
+            return min(retry_after, _MAX_BACKOFF_SECONDS)
+        # Full jitter: random point in [0, base * 2**attempt], capped.
+        ceiling = min(_MAX_BACKOFF_SECONDS, 1.0 * (2 ** attempt))
+        return random.uniform(0.0, ceiling)
+
     async def _send_request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Send a POST request with retry on transient errors."""
+        """POST with retry on rate-limit (429), 5xx, and transient transport
+        errors, respecting the server's ``Retry-After`` header.
+
+        ``max_retries`` from the model config counts retries *after* the first
+        attempt, so the total number of attempts is ``max_retries + 1``.
+        """
         if self._client.is_closed:
             raise ModelProviderError("HTTP client is closed.")
 
-        try:
-            response = await self._client.post("/chat/completions", json=payload)
-        except (httpx.TimeoutException, httpx.NetworkError):
-            # Re-raise transient errors unwrapped so the @retry decorator
-            # (which matches on these types) can actually retry them.
-            raise
-        except httpx.HTTPError as e:
-            raise ModelProviderError(f"Request to {self.provider_name} failed: {e}") from e
+        max_attempts = max(1, self._config.max_retries + 1)
+        last_error: str = ""
 
-        if response.status_code == 401 or response.status_code == 403:
-            raise ModelProviderError(
-                f"Authentication failed for {self.provider_name}. "
-                f"Check your {self._config.api_key_env} environment variable."
-            )
-        if response.status_code != 200:
-            raise ModelProviderError(
-                f"HTTP {response.status_code} from {self.provider_name}: "
-                f"{response.text[:500]}"
-            )
-        return response.json()
+        for attempt in range(max_attempts):
+            retry_after: float | None = None
+            try:
+                response = await self._client.post("/chat/completions", json=payload)
+            except httpx.TransportError as e:
+                # Timeouts, connection drops, and protocol errors are transient.
+                last_error = f"transport error: {e}"
+            except httpx.HTTPError as e:
+                # Other httpx errors (e.g. invalid URL) are not retryable.
+                raise ModelProviderError(
+                    f"Request to {self.provider_name} failed: {e}"
+                ) from e
+            else:
+                if response.status_code in (401, 403):
+                    raise ModelProviderError(
+                        f"Authentication failed for {self.provider_name}. "
+                        f"Check your {self._config.api_key_env} environment variable."
+                    )
+                if response.status_code == 200:
+                    return response.json()
+                if response.status_code not in _RETRYABLE_STATUS:
+                    # Non-retryable client error.
+                    raise ModelProviderError(
+                        f"HTTP {response.status_code} from {self.provider_name}: "
+                        f"{_redact(response.text[:500])}"
+                    )
+                retry_after = self._parse_retry_after(response.headers.get("Retry-After"))
+                last_error = (
+                    f"HTTP {response.status_code} from {self.provider_name}: "
+                    f"{_redact(response.text[:500])}"
+                )
+
+            # Out of attempts — surface the last error.
+            if attempt >= max_attempts - 1:
+                break
+            await asyncio.sleep(self._backoff_delay(attempt, retry_after))
+
+        raise ModelProviderError(
+            f"Request to {self.provider_name} failed after {max_attempts} "
+            f"attempt(s): {last_error}"
+        )
 
     def _parse_response(self, raw: dict[str, Any]) -> LLMResponse:
         """Parse the raw API response into a standardized LLMResponse."""
