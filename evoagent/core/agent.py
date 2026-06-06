@@ -143,7 +143,6 @@ class Agent:
             user_content = f"{task}\n\n{self._memory_context}"
         messages = [Message(role=MessageRole.USER, content=user_content)]
         system_prompt = self._build_system_prompt()
-
         run_result = await engine.run_turn(messages, system_prompt=system_prompt)
 
         # Build a RuntimeState snapshot so memory writing and AgentResult.state
@@ -187,15 +186,22 @@ class Agent:
 
     def _build_system_prompt(self) -> str:
         """System prompt for the iterative coding agent."""
-        return (
+        prompt = (
             "You are EvoAgent, an autonomous coding agent operating in a "
             f"workspace at '{self.workspace}'. Complete the user's task by "
             "calling the available tools. Inspect the workspace (read files, "
             "list directories, search) before making changes, then act. After "
             "each tool result, decide the next action. When the task is fully "
             "done, reply with a concise final answer and no further tool calls. "
-            "Do not claim success without verifying via tools."
+            "Do not claim success without verifying via tools. For any task with "
+            "multiple steps, call write_todos first to plan the subtasks, keep "
+            "exactly one in_progress, and update it as you complete each step."
         )
+        store = getattr(self.tool_registry, "todo_store", None)
+        if store is not None and store.items:
+            prompt += ("\n\nCurrent task list (carried over — continue from here, "
+                       "update with write_todos):\n" + store.format())
+        return prompt
 
     async def chat(self, message: str) -> str:
         """Simple chat without tool calling.
