@@ -14,6 +14,7 @@ A single source of truth for the read-decide-act agent loop. The engine:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -35,6 +36,13 @@ from evoagent.tools.schema import ToolResult
 
 ApprovalHook = Callable[[str, dict], Awaitable[bool]]
 ToolEventHook = Callable[[str, str, dict], Awaitable[Any]]
+
+# Tools that only read state and have no side effects, so several of them may
+# be executed concurrently within a single tool-call round. ``git_status`` is
+# deliberately excluded: ``git status`` can refresh and write the git index.
+READ_ONLY_TOOLS: frozenset[str] = frozenset(
+    {"read_file", "list_directory", "grep", "list_todos"}
+)
 
 
 def classify_tool(name: str, arguments: dict) -> tuple[str, str, str]:
@@ -166,6 +174,7 @@ class ReActEngine:
         token_budget: int = DEFAULT_TOKEN_BUDGET,
         keep_recent_tokens: int = DEFAULT_KEEP_RECENT_TOKENS,
         enable_compaction: bool = True,
+        tool_timeout: float | None = None,
     ):
         self.model_router = model_router
         self.tool_registry = tool_registry
@@ -183,6 +192,12 @@ class ReActEngine:
         self.token_budget = token_budget
         self.keep_recent_tokens = keep_recent_tokens
         self.enable_compaction = enable_compaction
+        # Optional wall-clock cap per tool execution (None = no outer cap; tools
+        # still enforce their own internal timeouts).
+        self.tool_timeout = tool_timeout
+        # Serializes event emission so concurrent read-only tools cannot
+        # interleave/corrupt a shared event sink.
+        self._emit_lock = asyncio.Lock()
 
     async def run_turn(
         self,
@@ -261,10 +276,10 @@ class ReActEngine:
                 tool_rounds += 1
                 # Atomic group: append exactly one tool message per call,
                 # in the original tool_calls order, regardless of outcome.
-                for tc in response.tool_calls:
-                    result.tool_calls += 1
-                    tool_msg = await self._run_one_tool(tc, result)
-                    messages.append(tool_msg)
+                # Consecutive read-only calls may run concurrently.
+                result.tool_calls += len(response.tool_calls)
+                tool_msgs = await self._run_tool_calls(response.tool_calls, result)
+                messages.extend(tool_msgs)
                 continue
 
             result.final_text = response.content or ""
@@ -279,11 +294,17 @@ class ReActEngine:
             result.final_text = messages[-1].content
         return result
 
-    async def _run_one_tool(self, tc, result: ReActRunResult) -> Message:
-        """Execute one tool call and return its tool message.
+    def _is_read_only(self, tc) -> bool:
+        """True if a tool call only reads state (safe to run concurrently)."""
+        return (tc.name or "").lower() in READ_ONLY_TOOLS
 
-        Always returns a tool message for ``tc.id`` (even on denial or error)
-        so the assistant/tool group stays complete.
+    async def _authorize(self, tc) -> tuple[ToolResult, Message, list[str]] | None:
+        """Run permission checks for one tool call.
+
+        Returns a resolved ``(tool_result, tool_message, errors)`` triple when
+        the call is denied or its ASK approval is refused; returns ``None`` when
+        the call is cleared to execute. Must be awaited **serially** so ASK
+        prompts are never issued concurrently.
         """
         action_type, target, risk = classify_tool(tc.name, tc.arguments)
         decision = self.permission_policy.check(action_type, target, risk_level=risk)
@@ -291,10 +312,9 @@ class ReActEngine:
         if decision == PermissionDecision.DENY:
             tr = ToolResult(call_id=tc.id, name=tc.name, success=False,
                             error=f"Permission denied for '{tc.name}'.")
-            result.tool_results.append(tr)
-            result.errors.append(f"{tc.name}: permission denied")
-            return Message(role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name,
-                           content=f"Permission denied for '{tc.name}'.")
+            msg = Message(role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name,
+                          content=f"Permission denied for '{tc.name}'.")
+            return tr, msg, [f"{tc.name}: permission denied"]
 
         if decision == PermissionDecision.ASK:
             approved = False
@@ -308,15 +328,28 @@ class ReActEngine:
             if not approved:
                 tr = ToolResult(call_id=tc.id, name=tc.name, success=False,
                                 error=f"Approval required for '{tc.name}'; not approved.")
-                result.tool_results.append(tr)
-                return Message(
+                msg = Message(
                     role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name,
                     content=f"Approval required for '{tc.name}'. The action was not approved.",
                 )
+                return tr, msg, []
+        return None
 
+    async def _execute(self, tc) -> tuple[ToolResult, Message, list[str]]:
+        """Execute one *authorized* tool call.
+
+        Side-effect free with respect to engine state — returns its own
+        ``(tool_result, tool_message, errors)`` so the caller can commit results
+        in deterministic order even when several calls run concurrently.
+        """
+        errors: list[str] = []
         await self._emit("tool_call_started", tc.name, {"arguments": tc.arguments})
         try:
-            tr = await self.tool_registry.run_tool(tc.name, tc.arguments, call_id=tc.id)
+            coro = self.tool_registry.run_tool(tc.name, tc.arguments, call_id=tc.id)
+            if self.tool_timeout is not None:
+                tr = await asyncio.wait_for(coro, timeout=self.tool_timeout)
+            else:
+                tr = await coro
             ok = bool(getattr(tr, "success", False))
             out = getattr(tr, "output", "") or getattr(tr, "error", "") or ""
             if not isinstance(tr, ToolResult):
@@ -324,18 +357,72 @@ class ReActEngine:
                                 output=str(getattr(tr, "output", "") or ""),
                                 error=getattr(tr, "error", None))
             if not ok and getattr(tr, "error", None):
-                result.errors.append(f"{tc.name}: {tr.error}")
+                errors.append(f"{tc.name}: {tr.error}")
+        except TimeoutError:
+            ok, out = False, f"Tool '{tc.name}' timed out after {self.tool_timeout}s."
+            tr = ToolResult(call_id=tc.id, name=tc.name, success=False, error=str(out))
+            errors.append(f"{tc.name}: timeout")
         except Exception as e:
             ok, out = False, f"Tool execution error: {e}"
             tr = ToolResult(call_id=tc.id, name=tc.name, success=False, error=str(e))
-            result.errors.append(f"{tc.name}: {e}")
+            errors.append(f"{tc.name}: {e}")
 
-        result.tool_results.append(tr)
         await self._emit(
             "tool_call_finished" if ok else "tool_call_failed",
             tc.name, {"output": str(out)[:200]},
         )
-        return Message(role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name, content=str(out))
+        msg = Message(role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name, content=str(out))
+        return tr, msg, errors
+
+    async def _run_tool_calls(self, tool_calls, result: ReActRunResult) -> list[Message]:
+        """Execute a round of tool calls and return one message per call.
+
+        Authorization (including ASK prompts) is done serially. Authorized
+        calls then execute preserving the original order, except that runs of
+        *consecutive* read-only calls are dispatched concurrently. Tool results
+        and errors are committed to ``result`` in the original call order so the
+        assistant/tool atomic group stays deterministic.
+        """
+        n = len(tool_calls)
+        trs: list[ToolResult | None] = [None] * n
+        msgs: list[Message | None] = [None] * n
+        errs: list[list[str]] = [[] for _ in range(n)]
+
+        # Phase 1 — authorize serially; resolve denials, plan the rest.
+        to_exec: list[int] = []
+        for idx, tc in enumerate(tool_calls):
+            resolved = await self._authorize(tc)
+            if resolved is not None:
+                trs[idx], msgs[idx], errs[idx] = resolved
+            else:
+                to_exec.append(idx)
+
+        # Phase 2 — execute, batching consecutive read-only calls concurrently.
+        j = 0
+        while j < len(to_exec):
+            idx = to_exec[j]
+            if self._is_read_only(tool_calls[idx]):
+                batch = [idx]
+                j += 1
+                while j < len(to_exec) and self._is_read_only(tool_calls[to_exec[j]]):
+                    batch.append(to_exec[j])
+                    j += 1
+                outcomes = await asyncio.gather(
+                    *(self._execute(tool_calls[b]) for b in batch)
+                )
+                for b, (tr, msg, e) in zip(batch, outcomes, strict=True):
+                    trs[b], msgs[b], errs[b] = tr, msg, e
+            else:
+                tr, msg, e = await self._execute(tool_calls[idx])
+                trs[idx], msgs[idx], errs[idx] = tr, msg, e
+                j += 1
+
+        # Phase 3 — commit in original order.
+        for idx in range(n):
+            if trs[idx] is not None:
+                result.tool_results.append(trs[idx])
+            result.errors.extend(errs[idx])
+        return [m for m in msgs if m is not None]
 
     def _track_cost(self, response) -> None:
         usage = getattr(response, "usage", None) or {}
@@ -351,10 +438,13 @@ class ReActEngine:
     async def _emit(self, event_type: str, tool_name: str, payload: dict) -> None:
         if self.tool_event_hook is None:
             return
-        try:
-            await self.tool_event_hook(event_type, tool_name, payload)
-        except Exception:
-            pass
+        # Serialize emission so concurrent read-only tools cannot interleave
+        # writes to a shared event sink.
+        async with self._emit_lock:
+            try:
+                await self.tool_event_hook(event_type, tool_name, payload)
+            except Exception:
+                pass
 
     def _context_state(self) -> str | None:
         """Snapshot of durable state to preserve across compaction (todos)."""
