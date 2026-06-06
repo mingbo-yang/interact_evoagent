@@ -185,6 +185,7 @@ class ReActEngine:
         enable_compaction: bool = True,
         tool_timeout: float | None = None,
         steering: Any = None,
+        checkpointer: Any = None,
     ):
         self.model_router = model_router
         self.tool_registry = tool_registry
@@ -208,6 +209,9 @@ class ReActEngine:
         # Optional out-of-band steering/interrupt controller (see
         # evoagent.core.steering.SteeringController). None disables steering.
         self.steering = steering
+        # Optional crash-recovery checkpointer (see
+        # evoagent.core.checkpoint.RunCheckpointer). None disables checkpointing.
+        self.checkpointer = checkpointer
         # Serializes event emission so concurrent read-only tools cannot
         # interleave/corrupt a shared event sink.
         self._emit_lock = asyncio.Lock()
@@ -257,6 +261,8 @@ class ReActEngine:
                     result.final_text = (
                         self._last_text(messages) or "Execution interrupted by user."
                     )
+                    self._save_checkpoint(messages, "interrupted", "interrupted",
+                                          system_prompt)
                     return result
             if self.enable_compaction:
                 compacted, changed = compact_messages(
@@ -284,6 +290,7 @@ class ReActEngine:
                 result.errors.append(f"Provider error: {e}")
                 if messages and messages[-1].content and not result.final_text:
                     result.final_text = messages[-1].content
+                self._save_checkpoint(messages, "error", "provider_error", system_prompt)
                 return result
 
             result.llm_calls += 1
@@ -305,10 +312,14 @@ class ReActEngine:
                 result.tool_calls += len(response.tool_calls)
                 tool_msgs = await self._run_tool_calls(response.tool_calls, result)
                 messages.extend(tool_msgs)
+                # Checkpoint after a completed tool round so a crash mid-run is
+                # recoverable from the last consistent assistant+tool group.
+                self._save_checkpoint(messages, "running", "", system_prompt)
                 continue
 
             result.final_text = response.content or ""
             result.stop_reason = "final"
+            self._save_checkpoint(messages, "done", "final", system_prompt)
             return result
 
         result.stop_reason = (
@@ -317,7 +328,19 @@ class ReActEngine:
         result.errors.append(f"Stopped without final answer: {result.stop_reason}.")
         if messages and messages[-1].content:
             result.final_text = messages[-1].content
+        self._save_checkpoint(messages, "incomplete", result.stop_reason, system_prompt)
         return result
+
+    def _save_checkpoint(self, messages, status: str, stop_reason: str,
+                         system_prompt: str | None) -> None:
+        """Persist resumable state; never let a checkpoint failure break a run."""
+        if self.checkpointer is None:
+            return
+        try:
+            self.checkpointer.save(messages, status=status, stop_reason=stop_reason,
+                                   system_prompt=system_prompt)
+        except Exception:
+            pass
 
     def _is_read_only(self, tc) -> bool:
         """True if a tool call only reads state (safe to run concurrently)."""

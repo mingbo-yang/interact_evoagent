@@ -42,6 +42,7 @@ class Agent:
         token_budget: int = DEFAULT_TOKEN_BUDGET,
         keep_recent_tokens: int = DEFAULT_KEEP_RECENT_TOKENS,
         steering: Any = None,
+        checkpoint_dir: str | Path | None = None,
     ):
         self.workspace = Path(workspace)
         self.tool_registry = tool_registry or create_builtin_registry(self.workspace)
@@ -86,6 +87,9 @@ class Agent:
         self._token_budget = token_budget
         self._keep_recent_tokens = keep_recent_tokens
         self.steering = steering
+        # Directory for crash-recovery checkpoints (one subdir per run_id).
+        # None disables checkpointing.
+        self._checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
 
     def _get_provider(self, role: str):
         """Get a provider for a role, falling back to default."""
@@ -115,7 +119,6 @@ class Agent:
         from evoagent.core.ids import generate_id
         from evoagent.core.message import Message, MessageRole
         from evoagent.core.react import ReActEngine
-        from evoagent.core.state import RunStatus, RuntimeState
 
         # Pre-run: retrieve relevant memories
         self._memory_context = ""
@@ -137,6 +140,10 @@ class Agent:
 
         # Fresh per-run cost so AgentResult totals are not cumulative.
         run_cost = CostSnapshot()
+        checkpointer = None
+        if self._checkpoint_dir is not None:
+            from evoagent.core.checkpoint import CheckpointStore
+            checkpointer = CheckpointStore(self._checkpoint_dir).checkpointer(run_id, task)
         engine = ReActEngine(
             model_router=self.model_router,
             tool_registry=self.tool_registry,
@@ -149,6 +156,7 @@ class Agent:
             token_budget=self._token_budget,
             keep_recent_tokens=self._keep_recent_tokens,
             steering=self.steering,
+            checkpointer=checkpointer,
         )
 
         user_content = task
@@ -158,26 +166,8 @@ class Agent:
         system_prompt = self._build_system_prompt()
         run_result = await engine.run_turn(messages, system_prompt=system_prompt)
 
-        # Build a RuntimeState snapshot so memory writing and AgentResult.state
-        # continue to work as before.
-        state = RuntimeState(run_id=run_id, task=task)
-        state.messages = messages
-        state.tool_results = list(run_result.tool_results)
-        state.errors = list(run_result.errors)
-        state.status = RunStatus.SUCCEEDED if run_result.success else RunStatus.FAILED
-
-        agent_result = AgentResult(
-            run_id=run_id,
-            task=task,
-            success=run_result.success,
-            final_answer=run_result.final_text,
-            state=state,
-            steps_taken=run_result.llm_calls,
-            tool_calls=run_result.tool_calls,
-            total_tokens=run_cost.total_tokens,
-            total_cost=run_cost.cost_usd,
-            error="; ".join(run_result.errors) if not run_result.success else None,
-            metadata={"cost": run_cost.summary(), "stop_reason": run_result.stop_reason},
+        agent_result = self._build_agent_result(
+            run_id, task, messages, run_result, run_cost
         )
 
         if self.trace_recorder:
@@ -196,6 +186,82 @@ class Agent:
                 pass
 
         return agent_result
+
+    def _build_agent_result(self, run_id, task, messages, run_result, run_cost):
+        """Assemble a RuntimeState snapshot and AgentResult from a run."""
+        from evoagent.core.state import RunStatus, RuntimeState
+
+        state = RuntimeState(run_id=run_id, task=task)
+        state.messages = messages
+        state.tool_results = list(run_result.tool_results)
+        state.errors = list(run_result.errors)
+        state.status = RunStatus.SUCCEEDED if run_result.success else RunStatus.FAILED
+        return AgentResult(
+            run_id=run_id,
+            task=task,
+            success=run_result.success,
+            final_answer=run_result.final_text,
+            state=state,
+            steps_taken=run_result.llm_calls,
+            tool_calls=run_result.tool_calls,
+            total_tokens=run_cost.total_tokens,
+            total_cost=run_cost.cost_usd,
+            error="; ".join(run_result.errors) if not run_result.success else None,
+            metadata={"cost": run_cost.summary(), "stop_reason": run_result.stop_reason},
+        )
+
+    async def resume(self, run_id: str, follow_up: str | None = None) -> AgentResult:
+        """Resume a previously checkpointed run and continue to completion.
+
+        Loads the last consistent message history saved by the checkpointer,
+        optionally appends a follow-up user message, then continues the ReAct
+        loop. Requires the agent to have been constructed with
+        ``checkpoint_dir``.
+
+        Args:
+            run_id: The run_id whose checkpoint should be resumed.
+            follow_up: Optional extra user instruction to inject before
+                continuing.
+
+        Returns:
+            AgentResult for the continued run.
+
+        Raises:
+            ValueError: If checkpointing is disabled or no checkpoint exists.
+        """
+        from evoagent.core.checkpoint import CheckpointStore
+        from evoagent.core.cost import CostSnapshot
+        from evoagent.core.message import Message, MessageRole
+        from evoagent.core.react import ReActEngine
+
+        if self._checkpoint_dir is None:
+            raise ValueError("resume() requires the agent to be built with checkpoint_dir.")
+        store = CheckpointStore(self._checkpoint_dir)
+        data = store.load(run_id)
+        if not data:
+            raise ValueError(f"No checkpoint found for run_id '{run_id}'.")
+
+        task = data.get("task", "")
+        messages = [Message.model_validate(m) for m in data.get("messages", [])]
+        if follow_up:
+            messages.append(Message(role=MessageRole.USER, content=follow_up))
+        system_prompt = data.get("system_prompt") or self._build_system_prompt()
+
+        run_cost = CostSnapshot()
+        engine = ReActEngine(
+            model_router=self.model_router,
+            tool_registry=self.tool_registry,
+            permission_policy=self.permission_policy or PermissionPolicy(),
+            role="executor",
+            cost=run_cost,
+            ask_fallback="allow",
+            token_budget=self._token_budget,
+            keep_recent_tokens=self._keep_recent_tokens,
+            steering=self.steering,
+            checkpointer=store.checkpointer(run_id, task),
+        )
+        run_result = await engine.run_turn(messages, system_prompt=system_prompt)
+        return self._build_agent_result(run_id, task, messages, run_result, run_cost)
 
     def _build_system_prompt(self) -> str:
         """System prompt for the iterative coding agent."""
