@@ -32,6 +32,7 @@ class EvalHarness:
         self.sandbox = sandbox or LocalSandbox(
             workspace=Workspace("."),
             policy=PermissionPolicy(),
+            auto_approve=True,
         )
 
     async def run_task(self, task: EvalTask) -> EvalResult:
@@ -65,12 +66,17 @@ class EvalHarness:
 
         duration_ms = int((time.monotonic() - t0) * 1000)
 
-        # Evaluate
+        # Evaluate. test_command checks must run in the task's workspace, so
+        # use a sandbox rooted there rather than the harness default.
         success = False
         if task.expected_check:
             success = await evaluate_check_async(output, task.expected_check, workspace, sandbox=self.sandbox)
         elif task.test_command:
-            success = await evaluate_check_async("", f'{{"type": "test_command", "command": "{task.test_command}"}}', workspace, sandbox=self.sandbox)
+            check_sandbox = self._sandbox_for(workspace)
+            success = await evaluate_check_async(
+                "", f'{{"type": "test_command", "command": "{task.test_command}"}}',
+                workspace, sandbox=check_sandbox,
+            )
         elif task.expected_output:
             success = task.expected_output in output
 
@@ -88,6 +94,18 @@ class EvalHarness:
             duration_ms=duration_ms,
             cost_usd=getattr(result, "total_cost", 0.0),
             error=result.error if hasattr(result, "error") and result.error else None,
+        )
+
+    def _sandbox_for(self, workspace: str) -> BaseSandbox:
+        """Return a sandbox rooted at ``workspace`` for trusted test_command
+        execution. Reuses the harness sandbox when it already matches."""
+        existing_root = getattr(getattr(self.sandbox, "workspace", None), "root", None)
+        if existing_root is not None and str(existing_root) == str(Path(workspace).resolve()):
+            return self.sandbox
+        return LocalSandbox(
+            workspace=Workspace(workspace),
+            policy=getattr(self.sandbox, "policy", None) or PermissionPolicy(),
+            auto_approve=True,
         )
 
     async def run_suite(self, tasks: list[EvalTask]) -> list[EvalResult]:

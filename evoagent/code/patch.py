@@ -3,6 +3,8 @@
 import subprocess
 from pathlib import Path
 
+from evoagent.tools.base import resolve_workspace_path
+
 
 class PatchManager:
     """Manages file patches: generation, tracking, and rollback.
@@ -14,13 +16,22 @@ class PatchManager:
         self.workspace = Path(workspace).resolve()
         self._patch_backups: dict[str, str] = {}
 
+    def _safe_path(self, path: str) -> Path | None:
+        """Resolve a path inside the workspace, or None if it escapes."""
+        try:
+            return resolve_workspace_path(path, self.workspace)
+        except (PermissionError, ValueError):
+            return None
+
     def edit_file(self, path: str, old_text: str, new_text: str) -> str:
         """Edit a file by replacing text. Backs up original for rollback.
 
         Returns:
             A description of what was done.
         """
-        p = self.workspace / path
+        p = self._safe_path(path)
+        if p is None:
+            return f"Path escapes workspace: {path}"
         if not p.exists():
             return f"File not found: {path}"
         content = p.read_text(encoding="utf-8")
@@ -35,7 +46,9 @@ class PatchManager:
 
     def write_file(self, path: str, content: str) -> str:
         """Write a new file or overwrite existing (backs up original)."""
-        p = self.workspace / path
+        p = self._safe_path(path)
+        if p is None:
+            return f"Path escapes workspace: {path}"
         if p.exists():
             self._patch_backups[str(p)] = p.read_text(encoding="utf-8")
         p.parent.mkdir(parents=True, exist_ok=True)

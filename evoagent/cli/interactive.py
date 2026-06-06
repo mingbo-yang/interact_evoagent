@@ -114,7 +114,9 @@ async def run_interactive():
             "default": provider,
         }
     )
-    tools = create_builtin_registry(workspace)
+    # The interactive runtime gates tool approval via the event bus, so the
+    # bash tool may execute ASK commands once the user has approved them.
+    tools = create_builtin_registry(workspace, auto_approve=True)
     policy = PermissionPolicy()
     store = SessionStore()
 
@@ -235,7 +237,12 @@ async def run_interactive():
                 prompt.append(" ❯ ", style="evo.prompt")
                 console.print(prompt, end="")
                 sys.stdout.flush()
-                user_input = sys.stdin.readline().strip()
+                line = sys.stdin.readline()
+                if not line:  # EOF (Ctrl-D)
+                    store.save(session)
+                    print("\nGoodbye.")
+                    break
+                user_input = line.strip()
             else:
                 print(f"EvoAgent[{session.mode.value}][{label}]> ", end="")
                 sys.stdout.flush()

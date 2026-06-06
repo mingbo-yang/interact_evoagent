@@ -35,6 +35,7 @@ class AgentLoop:
         reflector: Reflector | None = None,
         trace_recorder: TraceRecorder | None = None,
         max_steps: int = 20,
+        cost: CostSnapshot | None = None,
     ):
         self.tool_registry = tool_registry
         self.planner = planner
@@ -43,7 +44,7 @@ class AgentLoop:
         self.reflector = reflector or Reflector()
         self.trace_recorder = trace_recorder
         self.max_steps = max_steps
-        self.cost = CostSnapshot()
+        self.cost = cost or CostSnapshot()
 
     async def run(self, task: str, context: str = "") -> AgentResult:
         """Execute the full agent loop.
@@ -73,7 +74,9 @@ class AgentLoop:
 
             # 2. Execute loop
             step_count = 0
-            for step in plan.steps:
+            step_index = 0
+            while step_index < len(plan.steps):
+                step = plan.steps[step_index]
                 step_count += 1
                 if step_count > self.max_steps:
                     state.errors.append(f"Max steps ({self.max_steps}) reached.")
@@ -92,6 +95,7 @@ class AgentLoop:
                 if decision.passed:
                     if step.action_type == ActionType.FINISH:
                         break
+                    step_index += 1
                     continue
 
                 # 4. Reflect — revise plan if step failed
@@ -101,6 +105,8 @@ class AgentLoop:
                     break
                 plan = revised
                 state.plan = plan
+                # Restart execution from the beginning of the revised plan.
+                step_index = 0
                 if self.trace_recorder:
                     self.trace_recorder.save_state(state)
 
@@ -133,12 +139,29 @@ class AgentLoop:
                                final_answer="", state=state, error=str(e))
 
     def _build_final_answer(self, state: RuntimeState) -> str:
-        """Build a final answer from the execution state."""
+        """Build a final answer from the execution state.
+
+        The FINISH step always produces a constant placeholder output, so it
+        must not shadow the real answer. Prefer the last assistant message,
+        then the last successful non-FINISH step output.
+        """
         if state.messages:
             last = state.messages[-1]
             if last.content:
                 return last.content
         for sr in reversed(state.step_results):
+            step = self._find_step(state, sr.step_id)
+            if step is not None and step.action_type == ActionType.FINISH:
+                continue
             if sr.success and sr.output:
                 return str(sr.output)
         return "Task completed."
+
+    @staticmethod
+    def _find_step(state: RuntimeState, step_id: str):
+        """Resolve a step by id from the current plan, if available."""
+        if state.plan:
+            for s in state.plan.steps:
+                if s.id == step_id:
+                    return s
+        return None

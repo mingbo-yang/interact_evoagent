@@ -95,13 +95,22 @@ class ProviderFactory:
         if provider in (
             "openai",
             "openai_compatible",
-            "anthropic",
-            "gemini",
             "mistral",
             "xai",
             "ollama",
         ):
             return OpenAICompatibleProvider(config)
+
+        if provider in ("anthropic", "gemini"):
+            # These use native (non-OpenAI) request/response schemas and
+            # endpoints. Routing them through OpenAICompatibleProvider would
+            # silently produce 400/404s at first request. Fail clearly until
+            # native adapters exist.
+            raise ModelProviderError(
+                f"Native '{provider}' adapter is not yet implemented. "
+                f"To use {provider}, point an 'openai_compatible' provider at "
+                "an OpenAI-compatible gateway (e.g. a LiteLLM proxy) instead."
+            )
 
         if provider == "mock":
             return MockLLMProvider()
@@ -114,5 +123,5 @@ class ProviderFactory:
 
         raise ModelProviderError(
             f"Unknown provider: '{config.provider}'. "
-            "Supported: deepseek, openai_compatible, mock."
+            "Supported: deepseek, openai_compatible, mistral, xai, ollama, mock."
         )

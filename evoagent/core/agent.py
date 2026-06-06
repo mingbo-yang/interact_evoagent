@@ -45,12 +45,16 @@ class Agent:
             providers={"default": MockLLMProvider(fixed_text="OK")}
         )
 
+        # Shared cost snapshot across planner/executor/loop
+        from evoagent.core.cost import CostSnapshot
+        self.cost = CostSnapshot()
+
         # Planning components
         planner_llm = self._get_provider("planner")
-        self.planner = Planner(planner_llm, event_logger=trace_recorder)
+        self.planner = Planner(planner_llm, event_logger=trace_recorder, cost=self.cost)
 
         executor_llm = self._get_provider("executor")
-        self.executor = Executor(self.tool_registry, llm=executor_llm, event_logger=trace_recorder)
+        self.executor = Executor(self.tool_registry, llm=executor_llm, event_logger=trace_recorder, cost=self.cost)
 
         critic_llm = self._get_provider("critic")
         self.critic = Critic(llm=critic_llm, mode="rule", event_logger=trace_recorder)
@@ -65,6 +69,7 @@ class Agent:
             critic=self.critic,
             reflector=self.reflector,
             trace_recorder=trace_recorder,
+            cost=self.cost,
         )
 
         self.permission_policy = permission_policy

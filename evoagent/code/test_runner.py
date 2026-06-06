@@ -35,6 +35,7 @@ class CodeTestRunner:
         try:
             proc = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
                 timeout=timeout, cwd=str(self.workspace),
             )
             return TestResult(

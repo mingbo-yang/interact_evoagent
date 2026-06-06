@@ -10,6 +10,10 @@ class SimpleTextChunker:
     """
 
     def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 100):
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+        if chunk_overlap < 0:
+            raise ValueError(f"chunk_overlap must be >= 0, got {chunk_overlap}")
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -29,7 +33,8 @@ class SimpleTextChunker:
 
         step = self.chunk_size - self.chunk_overlap
         if step <= 0:
-            step = self.chunk_size
+            # overlap >= size: still make progress to avoid an infinite loop.
+            step = max(1, self.chunk_size)
 
         pos = 0
         while pos < len(text):

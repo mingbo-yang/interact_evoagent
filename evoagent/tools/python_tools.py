@@ -49,23 +49,26 @@ class PythonTool(BaseTool):
 
         # Fallback without sandbox
         import subprocess
+        import sys
         import tempfile
 
         if script_path:
             resolved = resolve_workspace_path(script_path, self.workspace, must_exist=True)
             proc = subprocess.run(
-                ["python3", str(resolved)], capture_output=True, text=True,
+                [sys.executable, str(resolved)], capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
                 timeout=timeout, cwd=str(self.workspace),
             )
         else:
             with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False, dir=str(self.workspace)
+                mode="w", suffix=".py", delete=False, dir=str(self.workspace), encoding="utf-8"
             ) as f:
                 f.write(code)
                 tmp_path = f.name
             try:
                 proc = subprocess.run(
-                    ["python3", tmp_path], capture_output=True, text=True,
+                    [sys.executable, tmp_path], capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
                     timeout=timeout, cwd=str(self.workspace),
                 )
             finally:
@@ -74,6 +77,8 @@ class PythonTool(BaseTool):
         output = proc.stdout
         if proc.stderr:
             output += "\n[stderr]\n" + proc.stderr
+        if len(output) > 100_000:
+            output = output[:100_000] + "\n... (output truncated)"
         return ToolResult(
             call_id=generate_id("call"), name=self.name,
             success=proc.returncode == 0,

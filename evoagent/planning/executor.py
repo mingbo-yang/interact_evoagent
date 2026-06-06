@@ -28,10 +28,12 @@ class Executor:
         tool_registry: ToolRegistry,
         llm: BaseLLMProvider | None = None,
         event_logger: Any = None,
+        cost: Any = None,
     ):
         self.tool_registry = tool_registry
         self.llm = llm
         self.event_logger = event_logger
+        self.cost = cost
 
     async def execute_step(self, state: RuntimeState, step: PlanStep) -> StepResult:
         """Execute a plan step and update RuntimeState.
@@ -93,6 +95,13 @@ class Executor:
             ],
         )
         response = await self.llm.chat(request)
+        if self.cost is not None:
+            usage = getattr(response, "usage", None) or {}
+            self.cost.add_call(
+                getattr(response, "model", "") or "",
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0),
+            )
         return StepResult(step_id=step.id, success=True, output=response.content)
 
     async def _execute_code(self, state: RuntimeState, step: PlanStep) -> StepResult:

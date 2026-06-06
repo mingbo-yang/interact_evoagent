@@ -104,7 +104,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             ) from e
 
     async def stream_chat(self, request: LLMRequest) -> AsyncIterator[str]:
-        """Stream text chunks from a chat completion request."""
+        """Stream text chunks from a chat completion request.
+
+        Text-only: this method yields assistant text deltas. Tool calls are
+        NOT assembled from the stream — callers that pass tools must use
+        ``chat()`` (non-streaming) to receive tool_calls reliably.
+        """
         payload = self._build_payload(request, stream=True)
 
         if self._client.is_closed:
@@ -156,9 +161,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     }
                     for tc in m.tool_calls
                 ]
-            # Preserve reasoning_content for DeepSeek thinking mode
-            if m.reasoning_content:
-                msg["reasoning_content"] = m.reasoning_content
+            # Note: reasoning_content (DeepSeek thinking tokens) is intentionally
+            # NOT sent back in the request. Per DeepSeek's reasoning-model API,
+            # the chain-of-thought must be dropped from subsequent inputs; it is
+            # retained on the internal Message for display only.
             msgs.append(msg)
 
         payload: dict[str, Any] = {
@@ -189,6 +195,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
         try:
             response = await self._client.post("/chat/completions", json=payload)
+        except (httpx.TimeoutException, httpx.NetworkError):
+            # Re-raise transient errors unwrapped so the @retry decorator
+            # (which matches on these types) can actually retry them.
+            raise
         except httpx.HTTPError as e:
             raise ModelProviderError(f"Request to {self.provider_name} failed: {e}") from e
 

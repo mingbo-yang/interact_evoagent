@@ -8,8 +8,17 @@ from pydantic import BaseModel, Field
 from evoagent.core.ids import generate_id
 from evoagent.sandbox.base import BaseSandbox
 from evoagent.sandbox.policy import PermissionPolicy
-from evoagent.tools.base import BaseTool, RiskLevel
+from evoagent.tools.base import BaseTool, RiskLevel, resolve_workspace_path
 from evoagent.tools.schema import ToolResult
+
+# Maximum characters of captured command output returned to the caller/model.
+_MAX_OUTPUT_CHARS = 100_000
+
+
+def _truncate_output(text: str) -> str:
+    if len(text) > _MAX_OUTPUT_CHARS:
+        return text[:_MAX_OUTPUT_CHARS] + "\n... (output truncated)"
+    return text
 
 
 class BashInput(BaseModel):
@@ -25,10 +34,14 @@ class BashTool(BaseTool):
     risk_level = RiskLevel.HIGH
 
     def __init__(self, workspace: Path, sandbox: BaseSandbox | None = None,
-                 policy: PermissionPolicy | None = None):
+                 policy: PermissionPolicy | None = None, auto_approve: bool = False):
         self.workspace = workspace
         self.sandbox = sandbox
         self.policy = policy or PermissionPolicy()
+        # When False (default), commands requiring approval (ASK) are refused
+        # rather than silently executed. Trusted callers that have already
+        # obtained approval may set this True.
+        self.auto_approve = auto_approve
 
     async def run(self, command: str, timeout: int = 30, cwd: str | None = None) -> ToolResult:
         # Always check via PermissionPolicy
@@ -38,6 +51,13 @@ class BashTool(BaseTool):
                 call_id=generate_id("call"), name=self.name, success=False,
                 error="Permission denied: command blocked by policy.",
                 metadata={"command": command, "decision": "deny"},
+            )
+        if decision.value == "ask" and not self.auto_approve:
+            return ToolResult(
+                call_id=generate_id("call"), name=self.name, success=False,
+                error="Permission required: this command needs approval and was "
+                      "not auto-approved in this context.",
+                metadata={"command": command, "decision": "ask"},
             )
 
         # Use sandbox if available
@@ -49,18 +69,25 @@ class BashTool(BaseTool):
             return ToolResult(
                 call_id=generate_id("call"), name=self.name,
                 success=result.success,
-                output=output.strip() or "(no output)",
+                output=_truncate_output(output.strip()) or "(no output)",
                 error=None if result.success else f"Exit code: {result.exit_code}",
                 metadata={"exit_code": result.exit_code, "command": command},
             )
 
-        # Direct execution (workspace-bounded)
+        # Direct execution, bounded to the workspace.
         work_dir = str(self.workspace)
         if cwd:
-            work_dir = str(Path(cwd).resolve())
+            try:
+                work_dir = str(resolve_workspace_path(cwd, self.workspace, must_exist=True))
+            except (PermissionError, FileNotFoundError) as e:
+                return ToolResult(
+                    call_id=generate_id("call"), name=self.name, success=False,
+                    error=str(e), metadata={"command": command},
+                )
         try:
             proc = subprocess.run(
                 command, shell=True, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
                 timeout=timeout, cwd=work_dir,
             )
             output = proc.stdout
@@ -69,7 +96,7 @@ class BashTool(BaseTool):
             return ToolResult(
                 call_id=generate_id("call"), name=self.name,
                 success=proc.returncode == 0,
-                output=output.strip() or "(no output)",
+                output=_truncate_output(output.strip()) or "(no output)",
                 error=None if proc.returncode == 0 else f"Exit code: {proc.returncode}",
                 metadata={"exit_code": proc.returncode, "command": command},
             )

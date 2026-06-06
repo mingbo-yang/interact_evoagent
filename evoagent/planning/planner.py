@@ -27,10 +27,12 @@ class Planner:
         llm: BaseLLMProvider,
         max_steps: int = 10,
         event_logger: Any = None,
+        cost: Any = None,
     ):
         self.llm = llm
         self.max_steps = max_steps
         self.event_logger = event_logger
+        self.cost = cost
 
     async def plan(self, task: str, tools_schema: list[dict[str, Any]], context: str = "") -> Plan:
         """Generate a plan for the given task.
@@ -46,7 +48,7 @@ class Planner:
         Raises:
             PlanningError: If the plan cannot be generated.
         """
-        tools_text = json.dumps([t.get("function", {}).get("name", "?") for t in tools_schema])
+        tools_text = self._format_tools(tools_schema)
         user_msg = PLANNER_USER_TEMPLATE.format(task=task, tools=tools_text, context=context)
 
         request = LLMRequest(
@@ -62,11 +64,49 @@ class Planner:
         except Exception as e:
             raise PlanningError(f"Planner LLM call failed: {e}") from e
 
+        self._record_cost(response)
         plan = self._parse_plan(response.content, task)
         if self.event_logger:
             self.event_logger.log(EventType.PLAN_CREATED, payload={"task": task})
 
         return plan
+
+    def _record_cost(self, response: Any) -> None:
+        """Accumulate token usage from a response into the shared snapshot."""
+        if self.cost is None:
+            return
+        usage = getattr(response, "usage", None) or {}
+        self.cost.add_call(
+            getattr(response, "model", "") or "",
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+        )
+
+    @staticmethod
+    def _format_tools(tools_schema: list[dict[str, Any]]) -> str:
+        """Render tools with their parameter schemas so the LLM uses the
+        exact argument names each tool expects.
+
+        Passing only tool names makes the model guess argument names
+        (e.g. ``file_path`` instead of ``path``), which then fail input
+        validation at execution time.
+        """
+        lines: list[str] = []
+        for t in tools_schema:
+            fn = t.get("function", t)
+            name = fn.get("name", "?")
+            desc = fn.get("description", "")
+            params = fn.get("parameters", {}) or {}
+            props = params.get("properties", {}) or {}
+            required = set(params.get("required", []) or [])
+            arg_parts = []
+            for arg_name, spec in props.items():
+                arg_type = spec.get("type", "any")
+                flag = "" if arg_name in required else "?"
+                arg_parts.append(f"{arg_name}{flag}:{arg_type}")
+            args_text = ", ".join(arg_parts) if arg_parts else "(no arguments)"
+            lines.append(f"- {name}({args_text}) — {desc}")
+        return "\n".join(lines) if lines else "(no tools available)"
 
     def _parse_plan(self, content: str, task: str) -> Plan:
         """Parse LLM output into a Plan. Tries to fix common JSON issues."""
@@ -80,7 +120,10 @@ class Planner:
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError:
-            data = self._repair_json(json_str, task)
+            try:
+                data = self._repair_json(json_str, task)
+            except PlanningError:
+                data = self._fallback_plan(task)
 
         if not data or "steps" not in data:
             data = self._fallback_plan(task)

@@ -107,6 +107,7 @@ class ConversationRuntime:
         system = self._build_system_prompt()
         tools_schema = self.tool_registry.get_tool_schemas()
         tool_rounds, step = 0, 0
+        final_text = ""
 
         while tool_rounds < self.max_tool_rounds and step < self.max_steps:
             step += 1
@@ -115,11 +116,7 @@ class ConversationRuntime:
             request_msgs.extend(safe_msgs)
             provider = self._get_provider("executor")
 
-            # Try streaming for final text response
-            if step == 1 or True:
-                response = await provider.chat(LLMRequest(messages=request_msgs, tools=tools_schema))
-            else:
-                response = await provider.chat(LLMRequest(messages=request_msgs, tools=tools_schema))
+            response = await provider.chat(LLMRequest(messages=request_msgs, tools=tools_schema))
 
             assistant_msg = Message(role=MessageRole.ASSISTANT, content=response.content or "",
                                    tool_calls=response.tool_calls, reasoning_content=response.reasoning_content)
@@ -168,13 +165,15 @@ class ConversationRuntime:
                     yield self._generate_reasoning()
                 continue
 
-            # Final text response — yield chunk by chunk
-            text = response.content or ""
-            for i in range(0, len(text), 80):
-                yield text[i:i+80]
+            # Final text response — yield chunk by chunk.
+            # Note: the response is fetched in full (needed to detect
+            # tool_calls) and then emitted in display-sized chunks.
+            final_text = response.content or ""
+            for i in range(0, len(final_text), 80):
+                yield final_text[i:i+80]
             break
 
-        self.session.record_turn(text, text if 'text' in dir() else "", tool_rounds)
+        self.session.record_turn(text, final_text, tool_rounds)
 
     _last_reasoning: str = ""
 

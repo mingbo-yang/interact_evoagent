@@ -26,13 +26,17 @@ class MockEmbeddingModel(BaseEmbeddingModel):
     DIM = 64
 
     def embed_text(self, text: str) -> list[float]:
-        h = hashlib.sha256(text.encode()).digest()
-        vec = []
-        for i in range(0, len(h), 4):
-            if len(vec) >= self.DIM:
-                break
-            val = int.from_bytes(h[i:i + 4], "big") / (2**32)
-            vec.append(val * 2 - 1)
+        vec: list[float] = []
+        block = 0
+        # A single SHA-256 digest yields only 8 four-byte values; hash
+        # additional salted blocks until every dimension has real signal
+        # (instead of zero-padding 56 of 64 dims).
         while len(vec) < self.DIM:
-            vec.append(0.0)
+            h = hashlib.sha256(f"{block}:{text}".encode()).digest()
+            for i in range(0, len(h), 4):
+                if len(vec) >= self.DIM:
+                    break
+                val = int.from_bytes(h[i:i + 4], "big") / (2**32)
+                vec.append(val * 2 - 1)
+            block += 1
         return vec

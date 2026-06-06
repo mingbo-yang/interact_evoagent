@@ -186,8 +186,9 @@ class ListDirTool(BaseTool):
                     entries.append(f"{p.name}{suffix}")
 
             if len(entries) > max_entries:
+                total = len(entries)
                 entries = entries[:max_entries]
-                entries.append(f"... ({len(entries)} total, showing first {max_entries})")
+                entries.append(f"... ({total} total, showing first {max_entries})")
 
             output = "\n".join(entries) if entries else "(empty directory)"
             return ToolResult(

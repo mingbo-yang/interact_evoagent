@@ -19,7 +19,10 @@ def tmp_workspace():
 @pytest.fixture
 def sandbox(tmp_workspace):
     policy = PermissionPolicy()
-    return LocalSandbox(workspace=tmp_workspace, policy=policy)
+    # auto_approve=True: this fixture represents a trusted/approved sandbox so
+    # tests can exercise execution mechanics. DENY rules are still enforced
+    # (see test_sandbox_run_rejects_dangerous).
+    return LocalSandbox(workspace=tmp_workspace, policy=policy, auto_approve=True)
 
 
 # ── Workspace ─────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 """LocalSandbox — execute commands locally with permission checks."""
 
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -24,9 +25,14 @@ class LocalSandbox(BaseSandbox):
         self,
         workspace: Workspace | None = None,
         policy: PermissionPolicy | None = None,
+        auto_approve: bool = False,
     ):
         super().__init__(workspace)
         self.policy = policy or PermissionPolicy()
+        # When False (default), operations requiring approval (ASK) are
+        # refused. Trusted internal callers (e.g. the eval harness running a
+        # configured test_command) may set this True.
+        self.auto_approve = auto_approve
 
     # ── Shell ─────────────────────────────────────────────────────────
 
@@ -40,6 +46,12 @@ class LocalSandbox(BaseSandbox):
                 success=False, stderr=f"Permission denied: {command}",
                 command=command, exit_code=-1,
             )
+        if decision == PermissionDecision.ASK and not self.auto_approve:
+            return SandboxResult(
+                success=False,
+                stderr=f"Permission required (not auto-approved): {command}",
+                command=command, exit_code=-1,
+            )
 
         work_dir = str(self.workspace.root)
         if cwd:
@@ -50,6 +62,7 @@ class LocalSandbox(BaseSandbox):
         try:
             proc = subprocess.run(
                 command, shell=True, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
                 timeout=timeout, cwd=work_dir,
             )
             return SandboxResult(
@@ -77,24 +90,32 @@ class LocalSandbox(BaseSandbox):
                 success=False, stderr="Permission denied: python execution",
                 exit_code=-1,
             )
+        if decision == PermissionDecision.ASK and not self.auto_approve:
+            return SandboxResult(
+                success=False, stderr="Permission required (not auto-approved): python execution",
+                exit_code=-1,
+            )
 
         t0 = time.monotonic()
         try:
             if script_path:
                 resolved = self.workspace.resolve_path(script_path)
                 proc = subprocess.run(
-                    ["python3", str(resolved)], capture_output=True, text=True,
+                    [sys.executable, str(resolved)], capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
                     timeout=timeout, cwd=str(self.workspace.root),
                 )
             else:
                 with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".py", delete=False, dir=str(self.workspace.root)
+                    mode="w", suffix=".py", delete=False, dir=str(self.workspace.root),
+                    encoding="utf-8",
                 ) as f:
                     f.write(code or "")
                     tmp_path = f.name
                 try:
                     proc = subprocess.run(
-                        ["python3", tmp_path], capture_output=True, text=True,
+                        [sys.executable, tmp_path], capture_output=True, text=True,
+                        encoding="utf-8", errors="replace",
                         timeout=timeout, cwd=str(self.workspace.root),
                     )
                 finally:

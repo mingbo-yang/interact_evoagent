@@ -10,11 +10,16 @@ from evoagent.tools.search_tools import GrepTool
 from evoagent.tools.shell_tools import BashTool
 
 
-def create_builtin_registry(workspace: Path) -> ToolRegistry:
+def create_builtin_registry(workspace: Path, auto_approve: bool = False) -> ToolRegistry:
     """Create a ToolRegistry populated with all built-in tools.
 
     Args:
         workspace: The workspace root directory for file operations.
+        auto_approve: When True, the bash tool executes commands that the
+            policy marks ASK without an extra approval step. Set this only in
+            contexts that already gate approval at a higher layer (e.g. the
+            interactive CLI runtime). Autonomous callers should leave it False
+            so ASK commands are refused rather than silently executed.
 
     Returns:
         ToolRegistry with read_file, write_file, edit_file,
@@ -26,7 +31,7 @@ def create_builtin_registry(workspace: Path) -> ToolRegistry:
     registry.register(EditFileTool(workspace))
     registry.register(ListDirTool(workspace))
     registry.register(GrepTool(workspace))
-    registry.register(BashTool(workspace))
+    registry.register(BashTool(workspace, auto_approve=auto_approve))
     registry.register(PythonTool(workspace))
     registry.register(GitStatusTool(workspace))
     registry.register(GitDiffTool(workspace))

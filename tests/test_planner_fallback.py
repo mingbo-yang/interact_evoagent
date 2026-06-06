@@ -11,12 +11,16 @@ from evoagent.planning.schema import ActionType, Plan, PlanStep
 
 @pytest.mark.asyncio
 async def test_planner_invalid_json_safe_fallback():
-    """Invalid JSON should trigger safe fallback plan, not crash."""
+    """Invalid JSON should trigger a safe fallback plan, not crash."""
     mock = MockLLMProvider(fixed_text="not json at all {{{")
     planner = Planner(llm=mock)
-    from evoagent.core.errors import PlanningError
-    with pytest.raises((PlanningError, ValueError)):
-        await planner.plan("dangerous task", [])
+    plan = await planner.plan("dangerous task", [])
+    assert plan is not None
+    assert len(plan.steps) >= 1
+    assert plan.steps[-1].action_type == ActionType.FINISH
+    # Safe fallback must never run arbitrary shell commands.
+    for step in plan.steps:
+        assert not (step.action_type == ActionType.TOOL and step.tool_name == "bash")
 
 
 @pytest.mark.asyncio

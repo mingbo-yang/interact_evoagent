@@ -100,7 +100,7 @@ class CodeAgent:
         low = output.lower()
 
         if "zerodivisionerror" in low or "division by zero" in low:
-            for pattern in ["return a / b", "return x / y", "return val /"]:
+            for pattern in ["return a / b", "return x / y"]:
                 if pattern in content and "/ 0" not in content:
                     self.patch.edit_file(target, pattern,
                                          f"return 0 if {pattern.split('/')[1].strip()} == 0 else {pattern.replace('return ', '')}")

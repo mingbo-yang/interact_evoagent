@@ -25,15 +25,24 @@ class MemoryConsolidator:
         """
         merges = 0
         all_items = self.store.list(limit=1000)
+        deleted: set[str] = set()
 
-        # Simple dedup: same memory_type + similar content
+        # Simple dedup: same memory_type + similar content.
+        # Track deleted ids so a memory that was merged away (and removed from
+        # the store) is never revisited as `item` or `other` — doing so would
+        # call store.update/delete on a missing row and raise KeyError.
         for i, item in enumerate(all_items):
+            if item.id in deleted:
+                continue
             for j in range(i + 1, len(all_items)):
                 other = all_items[j]
+                if other.id in deleted:
+                    continue
                 if item.memory_type != other.memory_type:
                     continue
                 if self._similarity(item.content, other.content) >= self.similarity_threshold:
                     self._merge(item, other)
+                    deleted.add(other.id)
                     merges += 1
         return merges
 

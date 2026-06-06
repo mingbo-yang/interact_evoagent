@@ -20,7 +20,8 @@ class CodeSearch:
             cmd.extend(["--include", glob])
         cmd.extend([pattern, str(self.workspace)])
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", timeout=15)
             lines = proc.stdout.strip().split("\n")
             if len(lines) > max_results:
                 return "\n".join(lines[:max_results]) + f"\n... ({len(lines)} total)"

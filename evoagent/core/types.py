@@ -52,7 +52,6 @@ from evoagent.core.state import (  # noqa: F401
     StepResult,
 )
 from evoagent.core.time import utc_now_iso  # noqa: F401
-from evoagent.eval.task import EvalResult, EvalTask  # noqa: F401
 from evoagent.logging.event import Event, EventType  # noqa: F401
 from evoagent.memory.schema import MemoryItem, MemoryType  # noqa: F401
 
@@ -65,6 +64,21 @@ from evoagent.planning.schema import (  # noqa: F401
     StepStatus,
 )
 from evoagent.tools.schema import ToolResult  # noqa: F401
+
+# ── Lazy re-exports (avoid import cycle) ──────────────────────────────
+# evoagent.eval.task imports from evoagent.core, so importing it eagerly
+# here creates a circular import when evoagent.eval is imported first.
+# Expose EvalResult/EvalTask lazily to preserve
+# ``from evoagent.core.types import EvalResult`` without the cycle.
+
+
+def __getattr__(name: str) -> Any:
+    if name in ("EvalResult", "EvalTask"):
+        from evoagent.eval.task import EvalResult, EvalTask
+
+        return {"EvalResult": EvalResult, "EvalTask": EvalTask}[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # ── Utility functions ─────────────────────────────────────────────────
 

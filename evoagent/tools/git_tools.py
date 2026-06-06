@@ -31,6 +31,7 @@ class GitStatusTool(BaseTool):
         try:
             proc = subprocess.run(
                 ["git", "status", "--short"], capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
                 timeout=10, cwd=str(self.workspace),
             )
             output = proc.stdout.strip() or "(clean — no changes)"
@@ -72,7 +73,9 @@ class GitDiffTool(BaseTool):
             if path:
                 cmd.append(path)
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=10, cwd=str(self.workspace),
+                cmd, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=10, cwd=str(self.workspace),
             )
             output = proc.stdout.strip() or "(no changes)"
             if proc.returncode != 0:

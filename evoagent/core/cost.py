@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "deepseek-chat":     {"input": 0.00027, "output": 0.0011},
     "deepseek-reasoner": {"input": 0.00055, "output": 0.00219},
+    # deepseek v4 family (approximate; update with official vendor pricing).
+    "deepseek-v4-flash": {"input": 0.00027, "output": 0.0011},
+    "deepseek-v4":       {"input": 0.00027, "output": 0.0011},
     "gpt-4o":            {"input": 0.005,   "output": 0.015},
     "gpt-4o-mini":       {"input": 0.00015, "output": 0.0006},
 }

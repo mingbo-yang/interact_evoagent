@@ -51,9 +51,15 @@ async def test_planner_handles_json_in_code_block():
 
 @pytest.mark.asyncio
 async def test_planner_invalid_json_fallback():
-    """Invalid JSON should trigger PlanningError or fallback."""
+    """Invalid JSON should produce a safe fallback plan, not crash.
+
+    Per the Planner contract ("Falls back to a simple plan if LLM output
+    cannot be parsed"), unparseable output yields a valid inspect-first plan.
+    """
     mock = MockLLMProvider(fixed_text="not json at all")
     p = Planner(llm=mock)
-    from evoagent.core.errors import PlanningError
-    with pytest.raises((ValueError, PlanningError)):
-        await p.plan("test", [])
+    plan = await p.plan("test", [])
+    assert plan is not None
+    assert len(plan.steps) >= 1
+    # A valid plan always ends with a finish step.
+    assert plan.steps[-1].action_type == ActionType.FINISH

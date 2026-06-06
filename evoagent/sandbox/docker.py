@@ -9,8 +9,6 @@ from evoagent.sandbox.policy import PermissionPolicy
 from evoagent.sandbox.schema import SandboxResult
 from evoagent.sandbox.workspace import Workspace
 
-_DOCKER_CHECK = shutil.which("docker")
-
 
 class DockerSandbox(BaseSandbox):
     """Sandbox that executes commands inside a Docker container.
@@ -38,6 +36,7 @@ class DockerSandbox(BaseSandbox):
         memory_limit: str | None = None,
         cpu_limit: str | None = None,
         user: str | None = None,
+        auto_approve: bool = False,
     ):
         super().__init__(workspace)
         self.policy = policy or PermissionPolicy()
@@ -48,11 +47,15 @@ class DockerSandbox(BaseSandbox):
         self.memory_limit = memory_limit
         self.cpu_limit = cpu_limit
         self.user = user
+        self.auto_approve = auto_approve
 
     async def run_shell(self, command: str, cwd: str | None = None, timeout: int = 30) -> SandboxResult:
         decision = self.policy.check("shell", command, risk_level="high")
         if decision.value == "deny":
             return SandboxResult(success=False, stderr="Permission denied.", command=command, exit_code=-1)
+        if decision.value == "ask" and not self.auto_approve:
+            return SandboxResult(success=False, stderr=f"Permission required (not auto-approved): {command}",
+                                 command=command, exit_code=-1)
         return self._docker_exec(command, timeout=timeout, cwd=cwd)
 
     async def run_python(self, code: str | None = None, script_path: str | None = None,
@@ -60,6 +63,9 @@ class DockerSandbox(BaseSandbox):
         decision = self.policy.check("python", code or script_path or "", risk_level="high")
         if decision.value == "deny":
             return SandboxResult(success=False, stderr="Permission denied.", exit_code=-1)
+        if decision.value == "ask" and not self.auto_approve:
+            return SandboxResult(success=False, stderr="Permission required (not auto-approved): python execution",
+                                 exit_code=-1)
         if script_path:
             cmd = f"python /workspace/{script_path}"
         else:
@@ -79,7 +85,7 @@ class DockerSandbox(BaseSandbox):
         resolved.write_text(content, encoding="utf-8")
 
     def _docker_exec(self, command: str, timeout: int = 30, cwd: str | None = None) -> SandboxResult:
-        if _DOCKER_CHECK is None:
+        if shutil.which("docker") is None:
             return SandboxResult(success=False, stderr="docker CLI not found. Install Docker to use DockerSandbox.",
                                  command=command, exit_code=-1)
         ws = str(self.workspace.root.resolve())
@@ -100,7 +106,8 @@ class DockerSandbox(BaseSandbox):
 
         t0 = time.monotonic()
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", timeout=timeout)
             return SandboxResult(
                 success=proc.returncode == 0, stdout=proc.stdout, stderr=proc.stderr,
                 exit_code=proc.returncode, duration_ms=int((time.monotonic() - t0) * 1000),

@@ -47,7 +47,7 @@ class Reflector:
         Returns:
             Revised Plan, or None if no revision is possible.
         """
-        plan_id = plan.id
+        plan_id = task
         count = self._reflection_count.get(plan_id, 0)
         if count >= self.max_reflections:
             return None

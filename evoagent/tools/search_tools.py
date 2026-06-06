@@ -37,6 +37,7 @@ class GrepTool(BaseTool):
             compiled = re.compile(pattern)
             matches: list[str] = []
             count = 0
+            truncated = False
 
             for fp in sorted(resolved.rglob("*")):
                 # Skip hidden dirs
@@ -58,8 +59,9 @@ class GrepTool(BaseTool):
                         matches.append(f"{rel}:{i}: {line[:200]}")
                         count += 1
                         if count >= max_results:
+                            truncated = True
                             break
-                if count >= max_results:
+                if truncated:
                     break
 
             if not matches:
@@ -69,8 +71,8 @@ class GrepTool(BaseTool):
                     metadata={"pattern": pattern, "matches": 0},
                 )
             output = "\n".join(matches)
-            if count > max_results:
-                output += f"\n... ({count} total matches, showing first {max_results})"
+            if truncated:
+                output += f"\n... (truncated at {max_results} matches; refine the pattern for more)"
             return ToolResult(
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=output, metadata={"pattern": pattern, "matches": count},

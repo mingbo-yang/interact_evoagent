@@ -64,5 +64,12 @@ class KeywordIndex:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        """Lowercase and split into alphanumeric tokens."""
-        return re.findall(r"[a-zA-Z0-9]+", text.lower())
+        """Lowercase and split into Unicode word tokens.
+
+        Adds individual CJK characters as tokens so CJK text (which has no
+        whitespace word boundaries) remains searchable.
+        """
+        lowered = text.lower()
+        tokens = re.findall(r"\w+", lowered, re.UNICODE)
+        cjk = re.findall(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", lowered)
+        return tokens + cjk
