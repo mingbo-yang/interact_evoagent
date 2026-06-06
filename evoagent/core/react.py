@@ -41,7 +41,8 @@ ToolEventHook = Callable[[str, str, dict], Awaitable[Any]]
 # be executed concurrently within a single tool-call round. ``git_status`` is
 # deliberately excluded: ``git status`` can refresh and write the git index.
 READ_ONLY_TOOLS: frozenset[str] = frozenset(
-    {"read_file", "list_directory", "grep", "list_todos"}
+    {"read_file", "list_directory", "grep", "list_todos", "glob", "outline",
+     "web_fetch", "web_search"}
 )
 
 
@@ -59,8 +60,11 @@ def classify_tool(name: str, arguments: dict) -> tuple[str, str, str]:
     if n in ("write_file", "edit_file", "multi_edit", "apply_patch", "undo_last",
              "create_file", "delete_file"):
         return "file_write", str(args.get("path", "") or args.get("file_path", "")), "medium"
-    if n in ("read_file", "list_directory", "grep", "glob", "search", "git_status", "git_diff"):
+    if n in ("read_file", "list_directory", "grep", "glob", "outline", "search",
+             "git_status", "git_diff"):
         return "file_read", str(args.get("path", "") or args.get("pattern", "")), "low"
+    if n in ("web_fetch", "web_search", "fetch", "http_get"):
+        return "network", str(args.get("url", "") or args.get("query", "")), "high"
     if n in ("python", "run_python"):
         return "python", str(args.get("code", ""))[:200], "medium"
     if n in ("run_tests", "test", "pytest"):

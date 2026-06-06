@@ -12,6 +12,7 @@ from evoagent.tools.file_tools import (
     WriteFileTool,
 )
 from evoagent.tools.git_tools import GitDiffTool, GitStatusTool
+from evoagent.tools.navigation_tools import GlobTool, OutlineTool
 from evoagent.tools.python_tools import PythonTool
 from evoagent.tools.registry import ToolRegistry
 from evoagent.tools.search_tools import GrepTool
@@ -19,12 +20,14 @@ from evoagent.tools.shell_tools import BashTool
 from evoagent.tools.snapshots import WorkspaceSnapshotManager
 from evoagent.tools.testing import RunTestsTool
 from evoagent.tools.todo_tools import ListTodosTool, TodoStore, WriteTodosTool
+from evoagent.tools.web_tools import WebFetchTool, WebSearchTool
 
 
 def create_builtin_registry(workspace: Path, auto_approve: bool = False,
                             enable_undo: bool = True,
                             enable_todos: bool = True,
-                            enable_tests: bool = True) -> ToolRegistry:
+                            enable_tests: bool = True,
+                            enable_web: bool = True) -> ToolRegistry:
     """Create a ToolRegistry populated with all built-in tools.
 
     Args:
@@ -43,11 +46,16 @@ def create_builtin_registry(workspace: Path, auto_approve: bool = False,
         enable_tests: When True (default), register the ``run_tests`` tool that
             runs the project's test suite and returns a failure-focused summary
             for the edit -> test -> fix loop.
+        enable_web: When True (default), register the ``web_fetch`` and
+            ``web_search`` network tools. These are gated by the permission
+            policy (``network`` action, high risk) and enforce an egress policy
+            that blocks private/loopback targets.
 
     Returns:
         ToolRegistry with read_file, write_file, edit_file, multi_edit,
         apply_patch, undo_last, write_todos, list_todos, run_tests,
-        list_directory, grep, bash, python, git_status, git_diff.
+        list_directory, grep, glob, outline, bash, python, git_status,
+        git_diff, web_fetch, web_search.
     """
     registry = ToolRegistry(workspace=workspace)
     snapshots = WorkspaceSnapshotManager(workspace) if enable_undo else None
@@ -66,10 +74,15 @@ def create_builtin_registry(workspace: Path, auto_approve: bool = False,
         registry.register(ListTodosTool(store))
     registry.register(ListDirTool(workspace))
     registry.register(GrepTool(workspace))
+    registry.register(GlobTool(workspace))
+    registry.register(OutlineTool(workspace))
     if enable_tests:
         registry.register(RunTestsTool(workspace))
     registry.register(BashTool(workspace, auto_approve=auto_approve))
     registry.register(PythonTool(workspace))
     registry.register(GitStatusTool(workspace))
     registry.register(GitDiffTool(workspace))
+    if enable_web:
+        registry.register(WebFetchTool())
+        registry.register(WebSearchTool())
     return registry
