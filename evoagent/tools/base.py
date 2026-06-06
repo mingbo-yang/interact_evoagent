@@ -194,4 +194,5 @@ def resolve_workspace_path(
 
 
 # Default directories to hide in listings
-_DEFAULT_HIDDEN_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", ".pytest_cache"}
+_DEFAULT_HIDDEN_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", ".pytest_cache",
+                        ".evoagent"}

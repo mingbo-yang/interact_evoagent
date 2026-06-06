@@ -112,10 +112,12 @@ class WriteFileTool(BaseTool):
     input_schema = WriteFileInput
     risk_level = RiskLevel.MEDIUM
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, snapshots=None):
         self.workspace = workspace
+        self.snapshots = snapshots
 
     async def run(self, path: str, content: str, overwrite: bool = False) -> ToolResult:
+        from evoagent.tools.snapshots import apply_writes
         try:
             resolved = resolve_workspace_path(path, self.workspace)
             if resolved.exists() and not overwrite:
@@ -123,8 +125,7 @@ class WriteFileTool(BaseTool):
                     call_id=generate_id("call"), name=self.name, success=False,
                     error=f"File already exists: {resolved}. Use overwrite=true to replace.",
                 )
-            resolved.parent.mkdir(parents=True, exist_ok=True)
-            resolved.write_text(content, encoding="utf-8")
+            await apply_writes(self.snapshots, {resolved: content}, self.name)
             return ToolResult(
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=f"Written {len(content)} chars to {resolved}",
@@ -144,12 +145,14 @@ class EditFileTool(BaseTool):
     input_schema = EditFileInput
     risk_level = RiskLevel.MEDIUM
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, snapshots=None):
         self.workspace = workspace
+        self.snapshots = snapshots
 
     async def run(self, path: str, old_text: str, new_text: str,
                   replace_all: bool = False) -> ToolResult:
         from evoagent.tools.editing import compute_edit
+        from evoagent.tools.snapshots import apply_writes
         try:
             resolved = resolve_workspace_path(path, self.workspace, must_exist=True)
             content = resolved.read_text(encoding="utf-8")
@@ -162,7 +165,7 @@ class EditFileTool(BaseTool):
                     call_id=generate_id("call"), name=self.name, success=False,
                     error=f"{err} (in {resolved})",
                 )
-            resolved.write_text(res.new_content, encoding="utf-8")
+            await apply_writes(self.snapshots, {resolved: res.new_content}, self.name)
             note = "" if res.strategy == "exact" else f" (matched via {res.strategy})"
             return ToolResult(
                 call_id=generate_id("call"), name=self.name, success=True,
@@ -184,11 +187,13 @@ class MultiEditTool(BaseTool):
     input_schema = MultiEditInput
     risk_level = RiskLevel.MEDIUM
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, snapshots=None):
         self.workspace = workspace
+        self.snapshots = snapshots
 
     async def run(self, path: str, edits: list) -> ToolResult:
         from evoagent.tools.editing import Edit, apply_edits
+        from evoagent.tools.snapshots import apply_writes
         try:
             resolved = resolve_workspace_path(path, self.workspace, must_exist=True)
             content = resolved.read_text(encoding="utf-8")
@@ -205,7 +210,7 @@ class MultiEditTool(BaseTool):
             if not ok:
                 return ToolResult(call_id=generate_id("call"), name=self.name,
                                   success=False, error=f"{error} (in {resolved})")
-            resolved.write_text(new_content, encoding="utf-8")
+            await apply_writes(self.snapshots, {resolved: new_content}, self.name)
             return ToolResult(
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=f"Applied {len(edit_objs)} edit(s) to {resolved}",
@@ -225,11 +230,13 @@ class ApplyPatchTool(BaseTool):
     input_schema = ApplyPatchInput
     risk_level = RiskLevel.MEDIUM
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, snapshots=None):
         self.workspace = workspace
+        self.snapshots = snapshots
 
     async def run(self, files: list) -> ToolResult:
         from evoagent.tools.editing import Edit, FileEdits, compute_multifile
+        from evoagent.tools.snapshots import apply_writes
 
         def _to_edits(raw) -> list:
             out = []
@@ -264,15 +271,63 @@ class ApplyPatchTool(BaseTool):
             if not ok:
                 return ToolResult(call_id=generate_id("call"), name=self.name,
                                   success=False, error=f"Patch not applied: {error}")
-            # All edits computed successfully — now write atomically.
-            for path, content in new_contents.items():
-                resolved_map[path].write_text(content, encoding="utf-8")
+            # All edits computed successfully — now write atomically (snapshotting
+            # every affected file in one group before any write).
+            writes = {resolved_map[p]: content for p, content in new_contents.items()}
+            await apply_writes(self.snapshots, writes, self.name)
             return ToolResult(
                 call_id=generate_id("call"), name=self.name, success=True,
                 output=f"Applied patch to {len(new_contents)} file(s): "
                        + ", ".join(str(resolved_map[p]) for p in new_contents),
                 metadata={"files": [str(resolved_map[p]) for p in new_contents]},
             )
+        except Exception as e:
+            return ToolResult(call_id=generate_id("call"), name=self.name,
+                              success=False, error=str(e))
+
+
+class UndoLastInput(BaseModel):
+    pass
+
+
+class UndoLastTool(BaseTool):
+    name = "undo_last"
+    description = ("Undo the most recent file-modifying tool call (write_file, edit_file, "
+                   "multi_edit, or apply_patch), restoring changed files to their prior "
+                   "contents and removing newly-created files. Call repeatedly to step back "
+                   "through earlier changes.")
+    input_schema = UndoLastInput
+    risk_level = RiskLevel.MEDIUM
+
+    def __init__(self, workspace: Path, snapshots=None):
+        self.workspace = workspace
+        self.snapshots = snapshots
+
+    async def run(self) -> ToolResult:
+        if self.snapshots is None:
+            return ToolResult(call_id=generate_id("call"), name=self.name, success=False,
+                              error="Undo is not available (no snapshot manager).")
+        try:
+            async with self.snapshots.lock:
+                summary = self.snapshots.undo_last()
+            if not summary.get("ok"):
+                return ToolResult(call_id=generate_id("call"), name=self.name,
+                                  success=False, error=summary.get("error", "Nothing to undo."))
+            parts = []
+            if summary["restored"]:
+                parts.append(f"restored {len(summary['restored'])}: "
+                             + ", ".join(summary["restored"]))
+            if summary["deleted"]:
+                parts.append(f"removed {len(summary['deleted'])}: "
+                             + ", ".join(summary["deleted"]))
+            if summary["conflicted"]:
+                parts.append("note: " + ", ".join(summary["conflicted"])
+                             + " changed since the edit (restored anyway)")
+            if summary["skipped"]:
+                parts.append("skipped: " + ", ".join(summary["skipped"]))
+            msg = f"Undid '{summary['label']}'. " + ("; ".join(parts) if parts else "No changes.")
+            return ToolResult(call_id=generate_id("call"), name=self.name, success=True,
+                              output=msg, metadata=summary)
         except Exception as e:
             return ToolResult(call_id=generate_id("call"), name=self.name,
                               success=False, error=str(e))
