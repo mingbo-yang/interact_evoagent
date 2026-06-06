@@ -131,6 +131,17 @@ def test_live_tool_reporter_handles_no_args():
     assert "git_status" in out
 
 
+def test_thinking_reporter_does_not_emit_raw_cursor_save_sequences():
+    c = _console()
+    rep = R.ThinkingReporter(c, lambda: "deepseek-chat", lambda: "2 msgs · 1 turns")
+    rep.start()
+    rep.stop()
+    out = c.file.getvalue()
+    # Regression for terminals showing literal "7[46;1H...8" from ESC 7/8.
+    assert "\x1b7" not in out
+    assert "\x1b8" not in out
+
+
 def test_history_timeline_empty_and_turns():
     from evoagent.conversation.schema import TurnRecord
 
