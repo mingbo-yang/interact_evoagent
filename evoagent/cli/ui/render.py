@@ -5,6 +5,12 @@ headers, and key/value tables so the interactive loop stays clean and the
 styling is consistent and easy to evolve.
 """
 
+import shutil
+
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.output.defaults import create_output
+from prompt_toolkit.shortcuts import print_formatted_text
+from prompt_toolkit.styles import Style
 from rich.console import Console, Group
 from rich.text import Text
 
@@ -247,11 +253,10 @@ class LiveToolReporter:
 class ThinkingReporter:
     """Safe thinking spinner for the model-latency gap.
 
-    Do not write raw ANSI cursor-control sequences here. Some terminals/PTYs
-    display them literally (e.g. ``7[46;1H...``), which is worse than a missing
-    toolbar. The input-state toolbar remains owned by prompt_toolkit; while the
-    model is thinking we show a compact Rich status line with the same model and
-    session state instead.
+    This uses prompt_toolkit's output layer (not direct ``sys.stdout`` writes)
+    to draw the toolbar, so it behaves like prompt_toolkit's own prompt
+    toolbar. If a real terminal output is not available, it degrades to a normal
+    Rich status line and does not attempt cursor movement.
     """
 
     def __init__(self, console: Console, get_model, get_status):
@@ -259,6 +264,8 @@ class ThinkingReporter:
         self.get_model = get_model
         self.get_status = get_status
         self._status = None
+        self._output = None
+        self._toolbar_visible = False
 
     def start(self) -> None:
         if self._status is not None:
@@ -276,6 +283,7 @@ class ThinkingReporter:
                 label, spinner="dots", spinner_style="evo.spinner"
             )
             self._status.start()
+            self._draw_bottom_toolbar()
         except Exception:
             self._status = None
             # Fallback: show a stable line rather than failing the turn.
@@ -288,6 +296,64 @@ class ThinkingReporter:
             except Exception:
                 pass
             self._status = None
+        self._clear_bottom_toolbar()
+
+    def _supports_pinned_toolbar(self) -> bool:
+        if not self.console.is_terminal:
+            return False
+        try:
+            output = create_output()
+            # PlainTextOutput has the methods but intentionally does not emit
+            # terminal controls. It also cannot keep a bottom toolbar pinned.
+            if output.__class__.__name__ == "PlainTextOutput":
+                return False
+            self._output = output
+            return True
+        except Exception:
+            return False
+
+    def _draw_bottom_toolbar(self) -> None:
+        if not self._supports_pinned_toolbar():
+            return
+        from evoagent.cli.ui.prompt import render_toolbar_text
+
+        output = self._output
+        size = shutil.get_terminal_size((self.console.width or 80, 24))
+        row = max(0, size.lines - 1)
+        text = render_toolbar_text(self.get_model(), self.get_status(), size.columns)
+        try:
+            # Use prompt_toolkit's output primitives for cursor movement and
+            # text rendering. CSI s/u (save/restore cursor) is the modern form;
+            # avoid DEC ESC7/ESC8 which some terminals show as literal text.
+            output.write_raw("\x1b[s")
+            output.cursor_goto(row, 0)
+            output.erase_end_of_line()
+            print_formatted_text(
+                FormattedText([("class:bottom-toolbar", text)]),
+                style=Style.from_dict({"bottom-toolbar": "bg:#1b1f2a #b8c0d4"}),
+                output=output,
+                end="",
+            )
+            output.write_raw("\x1b[u")
+            output.flush()
+            self._toolbar_visible = True
+        except Exception:
+            self._toolbar_visible = False
+
+    def _clear_bottom_toolbar(self) -> None:
+        if not self._toolbar_visible or self._output is None:
+            return
+        try:
+            size = shutil.get_terminal_size((self.console.width or 80, 24))
+            row = max(0, size.lines - 1)
+            self._output.write_raw("\x1b[s")
+            self._output.cursor_goto(row, 0)
+            self._output.erase_end_of_line()
+            self._output.write_raw("\x1b[u")
+            self._output.flush()
+        except Exception:
+            pass
+        self._toolbar_visible = False
 
 
 def mode_card(console: Console, mode: str) -> None:
