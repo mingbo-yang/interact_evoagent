@@ -155,6 +155,37 @@ def test_thinking_toolbar_uses_one_based_vt100_coordinates():
     assert "size.lines - 1" not in src
 
 
+def test_persistent_tui_uses_fullscreen_fixed_toolbar(tmp_path, monkeypatch):
+    from evoagent.cli.ui.event_bus import EventBus
+    from evoagent.cli.ui.tui import InteractiveTUI
+    from evoagent.conversation.session import ConversationSession
+
+    monkeypatch.chdir(tmp_path)
+
+    class _Runtime:
+        async def handle_user_message_stream(self, text):
+            yield "ok"
+
+    class _Store:
+        def save(self, session):
+            return session.session_id
+
+    tui = InteractiveTUI(
+        session=ConversationSession(workspace=str(tmp_path)),
+        runtime=_Runtime(),
+        store=_Store(),
+        event_bus=EventBus(),
+        command_handler=lambda _cmd: "ok",
+        get_model=lambda: "deepseek-chat",
+    )
+    app = tui._build_app()
+    assert app.full_screen is True
+    # The toolbar is the last row in the root HSplit, so it remains fixed at
+    # the terminal bottom while transcript/input update above it.
+    assert len(app.layout.container.children) == 3
+    assert app.layout.container.children[-1].height == 1
+
+
 def test_history_timeline_empty_and_turns():
     from evoagent.conversation.schema import TurnRecord
 

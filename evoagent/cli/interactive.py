@@ -139,26 +139,34 @@ async def run_interactive():
 
     version = "v1.0.0"
 
-    # Banner
+    # Prefer the persistent TUI on real terminals. It owns its own banner and
+    # fixed toolbar, so don't print the legacy Rich banner first (it would be
+    # left behind in scrollback after the full-screen app exits).
+    prefer_tui = sys.stdout.isatty()
+
+    # Banner for legacy fallback / non-TUI paths.
     if HAS_RICH and sys.stdout.isatty():
         console = Console(
             theme=__import__("evoagent.cli.ui.theme", fromlist=["EVO_THEME"]).EVO_THEME
         )
-        from evoagent.cli.ui.banner import render_banner
-        console.print(
-            render_banner(
-                version,
-                _model_display(_current_model_selection, config),
-                session.mode.value,
-                str(workspace),
-                context_pct=8,
-                billing="API" if _current_model_selection != "mock" else "Free",
-                width=console.width,
+        if not prefer_tui:
+            from evoagent.cli.ui.banner import render_banner
+            console.print(
+                render_banner(
+                    version,
+                    _model_display(_current_model_selection, config),
+                    session.mode.value,
+                    str(workspace),
+                    context_pct=8,
+                    billing="API" if _current_model_selection != "mock" else "Free",
+                    width=console.width,
+                )
             )
-        )
     elif sys.stdout.isatty():
-        from evoagent.cli.ui.banner import render_simple_startup
-        render_simple_startup(version, _current_model_selection, session.mode.value)
+        console = None
+        if not prefer_tui:
+            from evoagent.cli.ui.banner import render_simple_startup
+            render_simple_startup(version, _current_model_selection, session.mode.value)
     else:
         console = None
         print(f"EvoAgent {version} | {_current_model_selection} | {session.mode.value}")
@@ -245,6 +253,49 @@ async def run_interactive():
     event_bus.subscribe(UIEventType.TOOL_CALL_FINISHED.value, _on_tool)
     event_bus.subscribe(UIEventType.TOOL_CALL_FAILED.value, _on_tool)
     runtime = ConversationRuntime(session, router, tools, policy, event_bus=event_bus)
+
+    # Preferred interactive frontend: a persistent prompt_toolkit Application
+    # with transcript, input row, and fixed bottom toolbar in one layout. This
+    # makes the toolbar truly persistent during input, thinking, tools, and
+    # assistant output. The legacy PromptSession/Rich loop below is kept as a
+    # fallback for non-TTY or environments where the TUI cannot start.
+    if sys.stdout.isatty():
+        try:
+            from evoagent.cli.ui.tui import InteractiveTUI
+
+            # Remove legacy Rich event renderers; the persistent TUI subscribes
+            # to the same bus and renders into its transcript.
+            event_bus._subscribers.clear()
+
+            def _cmd_handler(text: str) -> str:
+                return _handle_command(
+                    text,
+                    session,
+                    store,
+                    provider_registry,
+                    model_registry,
+                    tools,
+                    router,
+                    config,
+                    console=None,
+                )
+
+            tui = InteractiveTUI(
+                session=session,
+                runtime=runtime,
+                store=store,
+                event_bus=event_bus,
+                command_handler=_cmd_handler,
+                get_model=lambda: _model_display(_current_model_selection, config),
+            )
+            await tui.run()
+            return
+        except Exception as exc:
+            # Fall back gracefully; never make startup impossible because of UI.
+            if HAS_RICH and console:
+                _render.warn(console, f"TUI fallback: {exc}")
+            else:
+                print(f"TUI fallback: {exc}")
 
     # Escape resolver for double-Esc exit
     from evoagent.cli.ui.escape import EscapeActionResolver
