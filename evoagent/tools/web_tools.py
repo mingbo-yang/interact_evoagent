@@ -34,6 +34,7 @@ _SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"[ \t\r\f\v]+")
 _BLANKS_RE = re.compile(r"\n\s*\n\s*")
+_TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 
 
 def _egress_allowlist() -> list[str] | None:
@@ -58,6 +59,31 @@ def html_to_text(content: str) -> str:
     content = _WS_RE.sub(" ", content)
     content = _BLANKS_RE.sub("\n\n", content)
     return content.strip()
+
+
+def _query_tokens(query: str) -> set[str]:
+    return {
+        t.lower()
+        for t in _TOKEN_RE.findall(query or "")
+        if len(t) >= 3 or any("\u4e00" <= ch <= "\u9fff" for ch in t)
+    }
+
+
+def _hits_look_relevant(query: str, hits: list[tuple[str, str, str]]) -> bool:
+    """Cheap sanity check for scraped search results.
+
+    HTML search engines can return a valid-looking page with completely
+    irrelevant regional/trending results. If none of the query tokens appear in
+    the title/url/snippet, treat the HTML backend as unusable and let the
+    Tavily fallback run (when configured).
+    """
+    tokens = _query_tokens(query)
+    if not tokens or not hits:
+        return bool(hits)
+    haystack = " ".join(" ".join(h) for h in hits[:5]).lower()
+    matched = sum(1 for t in tokens if t in haystack)
+    threshold = 1 if len(tokens) == 1 else min(2, len(tokens))
+    return matched >= threshold
 
 
 async def _fetch_with_egress(
@@ -287,6 +313,9 @@ class WebSearchTool(BaseTool):
                 ):
                     hits, engine, err = await completed
                     if hits:
+                        if _tavily_api_key() and not _hits_look_relevant(query, hits):
+                            last_error = f"Irrelevant-looking HTML results from {engine}"
+                            continue
                         for p in html_tasks:
                             p.cancel()
                         return self._format(query, hits, engine)

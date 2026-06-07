@@ -97,6 +97,15 @@ def test_classify_tool_maps_bash_to_shell():
     assert classify_tool("read_file", {"path": "x"})[0] == "file_read"
 
 
+def test_classify_web_search_low_risk_but_web_fetch_high_risk():
+    assert classify_tool("web_search", {"query": "python docs"}) == (
+        "network", "python docs", "low"
+    )
+    assert classify_tool("web_fetch", {"url": "https://example.com"}) == (
+        "network", "https://example.com", "high"
+    )
+
+
 # ── engine ──────────────────────────────────────────────────────────────
 
 

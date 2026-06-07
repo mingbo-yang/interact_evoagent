@@ -20,6 +20,13 @@ def test_html_to_text_strips_tags_and_scripts():
     assert "var a=1" not in text
 
 
+def test_search_relevance_requires_multiple_query_tokens():
+    hits = [("latest dictionary meaning", "https://dict.example/latest", "latest examples")]
+    assert not web_tools._hits_look_relevant("latest python asyncio docs", hits)
+    relevant = [("Python asyncio documentation", "https://docs.python.org/asyncio", "asyncio tasks")]
+    assert web_tools._hits_look_relevant("latest python asyncio docs", relevant)
+
+
 def _patch_get(monkeypatch, handler):
     async def fake_get(self, url, follow_redirects=False):
         return handler(url)
@@ -264,8 +271,8 @@ async def test_tavily_not_called_when_html_succeeds(monkeypatch):
     _allow_egress(monkeypatch)
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-FAKE-TESTKEY")
     bing = (
-        '<li class="b_algo"><h2><a href="https://x.com/a">Hit</a></h2>'
-        '<div class="b_caption"><p>snippet</p></div></li>'
+        '<li class="b_algo"><h2><a href="https://x.com/a">Python asyncio gather</a></h2>'
+        '<div class="b_caption"><p>python asyncio snippet</p></div></li>'
     )
 
     def get_handler(url):
@@ -285,11 +292,46 @@ async def test_tavily_not_called_when_html_succeeds(monkeypatch):
                               request=httpx.Request("POST", url))
 
     _patch_post(monkeypatch, post_handler)
-    res = await WebSearchTool().run(query="anything")
+    res = await WebSearchTool().run(query="python asyncio")
     assert res.success
     assert res.metadata["engine"] != "tavily"
     # HTML backend satisfied the query, so the paid API must NOT be called.
     assert called["post"] is False
+
+
+@pytest.mark.asyncio
+async def test_tavily_called_when_html_results_irrelevant(monkeypatch):
+    _allow_egress(monkeypatch)
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-FAKE-TESTKEY")
+    # Valid-looking but irrelevant HTML result.
+    bing = (
+        '<li class="b_algo"><h2><a href="https://sports.example/a">MMA fighter</a></h2>'
+        '<div class="b_caption"><p>sports profile</p></div></li>'
+    )
+
+    def get_handler(url):
+        return httpx.Response(
+            200, content=bing.encode(),
+            headers={"content-type": "text/html"},
+            request=httpx.Request("GET", url),
+        )
+
+    _patch_get(monkeypatch, get_handler)
+
+    def post_handler(url, headers, json):
+        return httpx.Response(
+            200,
+            json={"results": [
+                {"title": "EvoAgent GitHub", "url": "https://github.com/mingbo-yang/EvoAgent", "content": "repo"}
+            ]},
+            request=httpx.Request("POST", url),
+        )
+
+    _patch_post(monkeypatch, post_handler)
+    res = await WebSearchTool().run(query="EvoAgent GitHub")
+    assert res.success
+    assert res.metadata["engine"] == "tavily"
+    assert "EvoAgent GitHub" in res.output
 
 
 @pytest.mark.asyncio

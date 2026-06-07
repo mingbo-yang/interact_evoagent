@@ -69,7 +69,13 @@ def classify_tool(name: str, arguments: dict) -> tuple[str, str, str]:
              "search", "git_status", "git_diff"):
         return "file_read", str(args.get("path", "") or args.get("pattern", "")
                                 or args.get("query", "")), "low"
-    if n in ("web_fetch", "web_search", "fetch", "http_get"):
+    if n in ("web_search",):
+        # Search only contacts fixed search backends (Bing/DDG/Tavily) and is
+        # still protected by the egress policy; allow it in AUTO mode so agent
+        # UX doesn't stall on routine search approvals. Arbitrary URL fetches
+        # remain high-risk below.
+        return "network", str(args.get("query", "")), "low"
+    if n in ("web_fetch", "fetch", "http_get"):
         return "network", str(args.get("url", "") or args.get("query", "")), "high"
     if n in ("python", "run_python"):
         return "python", str(args.get("code", ""))[:200], "medium"

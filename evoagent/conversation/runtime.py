@@ -9,7 +9,6 @@ from collections.abc import AsyncIterator
 
 from evoagent.conversation.session import ConversationSession
 from evoagent.core.message import Message, MessageRole
-from evoagent.core.react import classify_tool
 from evoagent.models.router import ModelRouter
 from evoagent.models.schema import LLMRequest
 from evoagent.sandbox.policy import PermissionPolicy
@@ -29,6 +28,13 @@ class ConversationRuntime:
         self.max_steps = max_steps
         self.event_bus = event_bus
         self._tool_names_this_turn: list[str] = []
+
+    @staticmethod
+    def _classify_tool(name: str, arguments: dict):
+        # Lazy import avoids a circular import:
+        # core.react -> conversation.context -> conversation.__init__ -> runtime.
+        from evoagent.core.react import classify_tool
+        return classify_tool(name, arguments)
 
     async def handle_user_message(self, text: str) -> str:
         """Process one user message. Non-streaming, backward compatible."""
@@ -56,7 +62,7 @@ class ConversationRuntime:
                 tool_rounds += 1
                 for tc in response.tool_calls:
                     self._tool_names_this_turn.append(tc.name)
-                    action_type, target, risk = classify_tool(tc.name, tc.arguments)
+                    action_type, target, risk = self._classify_tool(tc.name, tc.arguments)
                     decision = self.permission_policy.check(action_type, target, risk_level=risk)
                     if decision == PermissionDecision.DENY:
                         self.session.append_tool_message(tc.id, "Permission denied.", tc.name)
@@ -128,7 +134,7 @@ class ConversationRuntime:
                 tool_rounds += 1
                 for tc in response.tool_calls:
                     self._tool_names_this_turn.append(tc.name)
-                    action_type, target, risk = classify_tool(tc.name, tc.arguments)
+                    action_type, target, risk = self._classify_tool(tc.name, tc.arguments)
                     decision = self.permission_policy.check(action_type, target, risk_level=risk)
                     if decision == PermissionDecision.DENY:
                         self.session.append_tool_message(tc.id, "Permission denied.", tc.name)
