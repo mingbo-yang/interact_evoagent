@@ -2,6 +2,7 @@
 
 import io
 
+import pytest
 from rich.console import Console
 
 from evoagent.cli.ui import render as R
@@ -406,6 +407,44 @@ def test_persistent_tui_mouse_wheel_scrolls_transcript(tmp_path, monkeypatch):
         modifiers=frozenset(),
     ))
     assert tui._scroll_offset == 0
+
+
+@pytest.mark.asyncio
+async def test_persistent_tui_queues_input_while_busy(tmp_path, monkeypatch):
+    from evoagent.cli.ui.event_bus import EventBus
+    from evoagent.cli.ui.tui import InteractiveTUI
+    from evoagent.conversation.session import ConversationSession
+
+    monkeypatch.chdir(tmp_path)
+
+    seen = []
+
+    class _Runtime:
+        async def handle_user_message_stream(self, text):
+            seen.append(text)
+            yield f"answer:{text}"
+
+    class _Store:
+        def save(self, session):
+            return session.session_id
+
+    tui = InteractiveTUI(
+        session=ConversationSession(workspace=str(tmp_path)),
+        runtime=_Runtime(),
+        store=_Store(),
+        event_bus=EventBus(),
+        command_handler=lambda _cmd: "ok",
+        get_model=lambda: "deepseek-chat",
+    )
+    tui.state = "thinking"
+    await tui._handle_input("second message")
+    assert list(tui._queue) == ["second message"]
+    assert any("queued" in "".join(t for _s, t in line) for line in tui._lines)
+
+    tui.state = "idle"
+    await tui._drain_queue()
+    assert seen == ["second message"]
+    assert not tui._queue
 
 
 def test_persistent_tui_markdown_line_rendering():

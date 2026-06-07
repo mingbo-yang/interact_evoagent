@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import io
 import time
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
@@ -69,6 +70,7 @@ class InteractiveTUI:
         self._welcome_visible = True
         self._approval: dict | None = None
         self._scroll_offset = 0
+        self._queue: deque[str] = deque()
 
         Path(".evoagent").mkdir(parents=True, exist_ok=True)
         self.buffer = Buffer(
@@ -252,6 +254,8 @@ class InteractiveTUI:
 
     def _toolbar(self):
         status = f"{self.state} · {len(self.session.messages)} msgs · {len(self.session.turns)} turns"
+        if self._queue:
+            status += f" · queued {len(self._queue)}"
         text = render_toolbar_text(self.get_model(), status, self._width())
         return [("class:bottom-toolbar", text)]
 
@@ -310,9 +314,18 @@ class InteractiveTUI:
 
     async def _handle_input(self, text: str) -> None:
         if self.state != "idle":
-            self._append("evo.warning", f"{sym('warn')} still working; wait for this turn to finish")
+            if text in ("/exit", "/quit"):
+                self.store.save(self.session)
+                if self._app:
+                    self._app.exit()
+                return
+            self._queue.append(text)
+            self._append("evo.faint", f"{sym('done')} queued  {text}")
             self._invalidate()
             return
+        await self._process_input_now(text)
+
+    async def _process_input_now(self, text: str, *, drain: bool = True) -> None:
         self._scroll_offset = 0
         self._append("evo.user", f"❯ {text}")
         self._append("evo.faint", "")
@@ -320,8 +333,17 @@ class InteractiveTUI:
         self._invalidate()
         if text.startswith("/"):
             await self._handle_command(text)
-            return
-        await self._handle_user_message(text)
+        else:
+            await self._handle_user_message(text)
+        if drain:
+            await self._drain_queue()
+
+    async def _drain_queue(self) -> None:
+        while self.state == "idle" and self._queue:
+            queued = self._queue.popleft()
+            self._append("evo.faint", f"{sym('tree_bar')} running queued message")
+            self._invalidate()
+            await self._process_input_now(queued, drain=False)
 
     async def _handle_command(self, text: str) -> None:
         if text in ("/exit", "/quit"):
