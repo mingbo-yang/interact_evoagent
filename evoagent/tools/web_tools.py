@@ -5,6 +5,7 @@ policy before issuing a request. They are network side-effecting and are
 classified as ``network`` actions so the permission policy can gate them.
 """
 
+import asyncio
 import html
 import os
 import re
@@ -19,6 +20,7 @@ from evoagent.tools.base import BaseTool, RiskLevel
 from evoagent.tools.schema import ToolResult
 
 _DEFAULT_TIMEOUT = 20.0
+_HTML_SEARCH_TIMEOUT = 5.0
 _MAX_REDIRECTS = 5
 _USER_AGENT = (
     "Mozilla/5.0 (compatible; EvoAgent/1.0; +https://github.com/mingbo-yang/EvoAgent)"
@@ -268,11 +270,17 @@ class WebSearchTool(BaseTool):
             for tmpl, parser_name in self._BACKENDS:
                 url = tmpl.format(q=quote_plus(query))
                 try:
-                    resp = await _fetch_with_egress(client, url, allowlist)
+                    resp = await asyncio.wait_for(
+                        _fetch_with_egress(client, url, allowlist),
+                        timeout=_HTML_SEARCH_TIMEOUT,
+                    )
                 except PermissionError as e:
                     # A free backend being unreachable/blocked must not prevent
                     # the Tavily fallback; record and move on.
                     last_error = f"Egress blocked: {e}"
+                    continue
+                except TimeoutError:
+                    last_error = f"Timed out fetching {urlparse(url).netloc}"
                     continue
                 except (httpx.HTTPError, RuntimeError) as e:
                     last_error = f"{type(e).__name__}: {e}"

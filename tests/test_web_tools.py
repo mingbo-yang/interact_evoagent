@@ -350,3 +350,30 @@ async def test_tavily_fallback_when_html_unreachable(monkeypatch):
     assert res.success
     assert res.metadata["engine"] == "tavily"
     assert "https://t.com" in res.output
+
+
+@pytest.mark.asyncio
+async def test_tavily_fallback_when_html_backend_times_out(monkeypatch):
+    import asyncio
+
+    _allow_egress(monkeypatch)
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-FAKE-TESTKEY")
+    monkeypatch.setattr(web_tools, "_HTML_SEARCH_TIMEOUT", 0.01)
+
+    async def slow_fetch(client, url, allowlist):
+        await asyncio.sleep(1)
+        raise AssertionError("should be cancelled by timeout")
+
+    monkeypatch.setattr(web_tools, "_fetch_with_egress", slow_fetch)
+
+    def post_handler(url, headers, json):
+        return httpx.Response(
+            200,
+            json={"results": [{"title": "T", "url": "https://t.com", "content": "c"}]},
+            request=httpx.Request("POST", url),
+        )
+
+    _patch_post(monkeypatch, post_handler)
+    res = await WebSearchTool().run(query="x")
+    assert res.success
+    assert res.metadata["engine"] == "tavily"

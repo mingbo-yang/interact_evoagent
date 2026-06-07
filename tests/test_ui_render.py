@@ -363,6 +363,51 @@ def test_persistent_tui_visible_lines_are_window_sized(tmp_path, monkeypatch):
     assert len(visible) <= 18  # default app-less fallback rows (24 - 6)
 
 
+def test_persistent_tui_mouse_wheel_scrolls_transcript(tmp_path, monkeypatch):
+    from prompt_toolkit.data_structures import Point
+    from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
+
+    from evoagent.cli.ui.event_bus import EventBus
+    from evoagent.cli.ui.tui import InteractiveTUI
+    from evoagent.conversation.session import ConversationSession
+
+    monkeypatch.chdir(tmp_path)
+
+    class _Runtime:
+        async def handle_user_message_stream(self, text):
+            yield "ok"
+
+    class _Store:
+        def save(self, session):
+            return session.session_id
+
+    tui = InteractiveTUI(
+        session=ConversationSession(workspace=str(tmp_path)),
+        runtime=_Runtime(),
+        store=_Store(),
+        event_bus=EventBus(),
+        command_handler=lambda _cmd: "ok",
+        get_model=lambda: "deepseek-chat",
+    )
+    for i in range(100):
+        tui._append("evo.text", f"line {i}")
+    assert tui._scroll_offset == 0
+    tui._mouse_handler(MouseEvent(
+        position=Point(0, 0),
+        event_type=MouseEventType.SCROLL_UP,
+        button=MouseButton.NONE,
+        modifiers=frozenset(),
+    ))
+    assert tui._scroll_offset > 0
+    tui._mouse_handler(MouseEvent(
+        position=Point(0, 0),
+        event_type=MouseEventType.SCROLL_DOWN,
+        button=MouseButton.NONE,
+        modifiers=frozenset(),
+    ))
+    assert tui._scroll_offset == 0
+
+
 def test_persistent_tui_markdown_line_rendering():
     from evoagent.cli.ui.tui import _markdown_line
 

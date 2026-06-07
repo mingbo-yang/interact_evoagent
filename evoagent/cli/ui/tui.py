@@ -32,6 +32,7 @@ from prompt_toolkit.layout import (
     Window,
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.mouse_events import MouseEventType
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
@@ -443,9 +444,21 @@ class InteractiveTUI:
         fragments = []
         visible = self._visible_lines()
         for line in visible:
-            fragments.extend(line)
+            for style, text in line:
+                fragments.append((style, text, self._mouse_handler))
             fragments.append(("", "\n"))
         return fragments
+
+    def _mouse_handler(self, mouse_event):
+        if mouse_event.event_type == MouseEventType.SCROLL_UP:
+            self._scroll_offset = min(self._max_scroll(), self._scroll_offset + 3)
+            self._invalidate()
+            return None
+        if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
+            self._scroll_offset = max(0, self._scroll_offset - 3)
+            self._invalidate()
+            return None
+        return NotImplemented
 
     def _visible_lines(self) -> list[list[tuple[str, str]]]:
         # Keep the latest activity visible, but render from the top of the
