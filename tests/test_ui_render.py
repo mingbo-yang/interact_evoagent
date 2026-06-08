@@ -182,9 +182,10 @@ def test_persistent_tui_uses_dedicated_agent_screen(tmp_path, monkeypatch):
     )
     app = tui._build_app()
     assert app.full_screen is True
-    assert app.mouse_support() is False
+    assert app.mouse_support() is True
     # Layout: transcript / input top rule / input / input bottom rule / toolbar.
-    # The toolbar is the last row inside the dedicated agent interface.
+    # The toolbar is the last row inside the dedicated agent interface, and
+    # mouse support lets the transcript handle wheel scrolling.
     root = app.layout.container.content  # FloatContainer(content=HSplit(...))
     assert len(root.children) == 5
     assert root.children[-4].height == 1

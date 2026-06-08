@@ -255,9 +255,9 @@ class InteractiveTUI:
             # dedicated agent interface instead of continuing inside the
             # caller's terminal scrollback.
             full_screen=True,
-            # Keep mouse selection owned by the terminal so users can copy
-            # model replies normally. Keyboard scrolling remains available.
-            mouse_support=False,
+            # In the dedicated alternate screen there is no terminal scrollback,
+            # so EvoAgent must receive wheel events to scroll the transcript.
+            mouse_support=True,
         )
 
     def _prompt_prefix(self):
