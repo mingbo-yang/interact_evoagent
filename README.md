@@ -180,6 +180,23 @@ only from the environment and is never written to source, logs, or sessions.
 | `evoagent memory` | Manage agent memories |
 | `evoagent trace` | Inspect execution traces |
 
+### Interactive UI controls
+
+`evoagent chat` opens a dedicated full-screen agent interface. The default mouse
+mode is `wheel`, where the mouse wheel scrolls through conversation context.
+Press `F2` to switch to `copy` mode, which temporarily releases mouse selection
+back to the terminal so you can drag-select and copy model replies. Press `F2`
+again to return to `wheel` mode. The current mode is shown in the bottom
+toolbar.
+
+| Shortcut | Description |
+| --- | --- |
+| `F2` | Toggle between `wheel` mode (mouse-wheel scrolling) and `copy` mode (drag-select copy) |
+| `↑` / `↓` | Browse input history |
+| `PageUp` / `PageDown` | Scroll conversation context with the keyboard |
+| `Home` / `End` | Jump to the beginning / latest context |
+| `Ctrl+D` / `Esc` | Exit the interactive session when the input is empty |
+
 ## Built-in Tools
 
 | Category | Tools |
