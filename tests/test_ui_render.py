@@ -157,7 +157,7 @@ def test_thinking_toolbar_uses_one_based_vt100_coordinates():
     assert "size.lines - 1" not in src
 
 
-def test_persistent_tui_uses_terminal_scrollback_for_copy_and_wheel(tmp_path, monkeypatch):
+def test_persistent_tui_uses_dedicated_agent_screen(tmp_path, monkeypatch):
     from evoagent.cli.ui.event_bus import EventBus
     from evoagent.cli.ui.tui import InteractiveTUI
     from evoagent.conversation.session import ConversationSession
@@ -181,11 +181,10 @@ def test_persistent_tui_uses_terminal_scrollback_for_copy_and_wheel(tmp_path, mo
         get_model=lambda: "deepseek-chat",
     )
     app = tui._build_app()
-    assert app.full_screen is False
+    assert app.full_screen is True
     assert app.mouse_support() is False
     # Layout: transcript / input top rule / input / input bottom rule / toolbar.
-    # The rules clearly mark input area while the terminal keeps native
-    # scrollback/copy behavior.
+    # The toolbar is the last row inside the dedicated agent interface.
     root = app.layout.container.content  # FloatContainer(content=HSplit(...))
     assert len(root.children) == 5
     assert root.children[-4].height == 1
@@ -193,7 +192,7 @@ def test_persistent_tui_uses_terminal_scrollback_for_copy_and_wheel(tmp_path, mo
     assert root.children[-1].height == 1
 
 
-def test_persistent_tui_clears_screen_once_without_fullscreen():
+def test_persistent_tui_clears_screen_once_before_startup():
     from evoagent.cli.ui.tui import _clear_terminal_screen
 
     class _Output:

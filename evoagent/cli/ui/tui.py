@@ -251,11 +251,10 @@ class InteractiveTUI:
             key_bindings=kb,
             style=_STYLE,
             output=_create_safe_output(),
-            # Use the normal terminal buffer, not the alternate full-screen
-            # screen. This keeps native terminal scrollback and text selection
-            # available, so copying replies and mouse-wheel scrolling can
-            # coexist like commercial agent CLIs.
-            full_screen=False,
+            # Use prompt_toolkit's alternate screen so EvoAgent opens as a
+            # dedicated agent interface instead of continuing inside the
+            # caller's terminal scrollback.
+            full_screen=True,
             # Keep mouse selection owned by the terminal so users can copy
             # model replies normally. Keyboard scrolling remains available.
             mouse_support=False,
