@@ -193,6 +193,26 @@ def test_persistent_tui_uses_terminal_scrollback_for_copy_and_wheel(tmp_path, mo
     assert root.children[-1].height == 1
 
 
+def test_persistent_tui_clears_screen_once_without_fullscreen():
+    from evoagent.cli.ui.tui import _clear_terminal_screen
+
+    class _Output:
+        def __init__(self):
+            self.writes = []
+            self.flushed = False
+
+        def write_raw(self, text):
+            self.writes.append(text)
+
+        def flush(self):
+            self.flushed = True
+
+    output = _Output()
+    _clear_terminal_screen(output)
+    assert output.writes == ["\x1b[2J\x1b[H"]
+    assert output.flushed is True
+
+
 def test_persistent_tui_input_rules_track_width(tmp_path, monkeypatch):
     from prompt_toolkit.utils import get_cwidth
 

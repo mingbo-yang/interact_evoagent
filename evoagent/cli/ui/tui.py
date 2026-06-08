@@ -97,6 +97,7 @@ class InteractiveTUI:
         self._subscribe_events()
         app = self._build_app()
         self._app = app
+        _clear_terminal_screen(app.output)
         await app.run_async()
 
     # ── App/layout ───────────────────────────────────────────────────
@@ -602,6 +603,14 @@ def _create_safe_output():
         return create_output()
     except Exception:
         return DummyOutput()
+
+
+def _clear_terminal_screen(output) -> None:
+    try:
+        output.write_raw("\x1b[2J\x1b[H")
+        output.flush()
+    except Exception:
+        return
 
 
 def _markdown_line(line: str) -> list[tuple[str, str]]:
