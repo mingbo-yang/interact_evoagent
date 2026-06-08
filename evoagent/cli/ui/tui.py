@@ -250,10 +250,11 @@ class InteractiveTUI:
             key_bindings=kb,
             style=_STYLE,
             output=_create_safe_output(),
-            # Full-screen layout is what makes the bottom toolbar a true fixed
-            # terminal-bottom row across input, thinking, tool events and answer
-            # rendering. The legacy non-fullscreen loop remains as fallback.
-            full_screen=True,
+            # Use the normal terminal buffer, not the alternate full-screen
+            # screen. This keeps native terminal scrollback and text selection
+            # available, so copying replies and mouse-wheel scrolling can
+            # coexist like commercial agent CLIs.
+            full_screen=False,
             # Keep mouse selection owned by the terminal so users can copy
             # model replies normally. Keyboard scrolling remains available.
             mouse_support=False,
