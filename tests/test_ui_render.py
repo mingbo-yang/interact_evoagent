@@ -183,6 +183,8 @@ def test_persistent_tui_uses_dedicated_agent_screen(tmp_path, monkeypatch):
     app = tui._build_app()
     assert app.full_screen is True
     assert app.mouse_support() is True
+    tui._mouse_scroll_enabled = False
+    assert app.mouse_support() is False
     # Layout: transcript / input top rule / input / input bottom rule / toolbar.
     # The toolbar is the last row inside the dedicated agent interface, and
     # mouse support lets the transcript handle wheel scrolling.
@@ -191,6 +193,41 @@ def test_persistent_tui_uses_dedicated_agent_screen(tmp_path, monkeypatch):
     assert root.children[-4].height == 1
     assert root.children[-2].height == 1
     assert root.children[-1].height == 1
+
+
+def test_persistent_tui_toolbar_shows_mouse_mode(tmp_path, monkeypatch):
+    from evoagent.cli.ui.event_bus import EventBus
+    from evoagent.cli.ui.tui import InteractiveTUI
+    from evoagent.conversation.session import ConversationSession
+
+    monkeypatch.chdir(tmp_path)
+
+    class _Runtime:
+        async def handle_user_message_stream(self, text):
+            yield "ok"
+
+    class _Store:
+        def save(self, session):
+            return session.session_id
+
+    tui = InteractiveTUI(
+        session=ConversationSession(workspace=str(tmp_path)),
+        runtime=_Runtime(),
+        store=_Store(),
+        event_bus=EventBus(),
+        command_handler=lambda _cmd: "ok",
+        get_model=lambda: "deepseek-chat",
+    )
+    tui._app = type(
+        "A",
+        (),
+        {"output": type("O", (), {"get_size": lambda self: type("S", (), {"columns": 120})()})()},
+    )()
+    wheel = "".join(text for _style, text in tui._toolbar())
+    tui._mouse_scroll_enabled = False
+    copy = "".join(text for _style, text in tui._toolbar())
+    assert "wheel" in wheel
+    assert "copy" in copy
 
 
 def test_persistent_tui_clears_screen_once_before_startup():

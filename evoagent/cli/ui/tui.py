@@ -80,6 +80,7 @@ class InteractiveTUI:
         self._assistant_stream_start: int | None = None
         self._assistant_stream_len = 0
         self._assistant_stream_text = ""
+        self._mouse_scroll_enabled = True
 
         Path(".evoagent").mkdir(parents=True, exist_ok=True)
         self.buffer = Buffer(
@@ -135,6 +136,13 @@ class InteractiveTUI:
             if self._approval is not None:
                 return
             event.current_buffer.complete_next()
+
+        @kb.add("f2")
+        def _toggle_mouse_mode(event):
+            self._mouse_scroll_enabled = not self._mouse_scroll_enabled
+            mode = "wheel scrolling" if self._mouse_scroll_enabled else "copy selection"
+            self._append("evo.faint", f"{sym('done')} mouse mode: {mode}")
+            event.app.invalidate()
 
         @kb.add("up")
         def _up(event):
@@ -257,7 +265,9 @@ class InteractiveTUI:
             full_screen=True,
             # In the dedicated alternate screen there is no terminal scrollback,
             # so EvoAgent must receive wheel events to scroll the transcript.
-            mouse_support=True,
+            # F2 toggles this off temporarily, releasing mouse drag selection
+            # back to the terminal for copy workflows.
+            mouse_support=Condition(lambda: self._mouse_scroll_enabled),
         )
 
     def _prompt_prefix(self):
@@ -266,7 +276,8 @@ class InteractiveTUI:
         return [(cls, "❯ ")]
 
     def _toolbar(self):
-        status = f"{self.state} · {len(self.session.messages)} msgs · {len(self.session.turns)} turns"
+        mouse_mode = "wheel" if self._mouse_scroll_enabled else "copy"
+        status = f"{self.state} · {mouse_mode} · {len(self.session.messages)} msgs · {len(self.session.turns)} turns"
         if self._queue:
             status += f" · queued {len(self._queue)}"
         text = render_toolbar_text(self.get_model(), status, self._width())
