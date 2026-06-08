@@ -254,7 +254,9 @@ class InteractiveTUI:
             # terminal-bottom row across input, thinking, tool events and answer
             # rendering. The legacy non-fullscreen loop remains as fallback.
             full_screen=True,
-            mouse_support=True,
+            # Keep mouse selection owned by the terminal so users can copy
+            # model replies normally. Keyboard scrolling remains available.
+            mouse_support=False,
         )
 
     def _prompt_prefix(self):
@@ -317,10 +319,9 @@ class InteractiveTUI:
     # ── Input and runtime ────────────────────────────────────────────
     def _accept(self, buf: Buffer) -> bool:
         text = buf.text.strip()
-        buf.reset()
         if text:
             asyncio.create_task(self._handle_input(text))
-        return True
+        return False
 
     async def _handle_input(self, text: str) -> None:
         if self.state != "idle":

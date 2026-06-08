@@ -182,6 +182,7 @@ def test_persistent_tui_uses_fullscreen_fixed_toolbar(tmp_path, monkeypatch):
     )
     app = tui._build_app()
     assert app.full_screen is True
+    assert app.mouse_support() is False
     # Layout: transcript / input top rule / input / input bottom rule / toolbar.
     # The toolbar is the last row, while the two rules clearly mark input area.
     root = app.layout.container.content  # FloatContainer(content=HSplit(...))
@@ -333,6 +334,44 @@ def test_persistent_tui_appends_assistant_chunks_incrementally(tmp_path, monkeyp
     idx = tui._append_assistant_chunk(None, "hello ")
     idx = tui._append_assistant_chunk(idx, "world")
     assert "".join(text for _style, text in tui._lines[idx]) == "hello world"
+
+
+def test_persistent_tui_accept_updates_history_immediately(tmp_path, monkeypatch):
+    from evoagent.cli.ui.event_bus import EventBus
+    from evoagent.cli.ui.tui import InteractiveTUI
+    from evoagent.conversation.session import ConversationSession
+
+    monkeypatch.chdir(tmp_path)
+
+    class _Runtime:
+        async def handle_user_message_stream(self, text):
+            yield "ok"
+
+    class _Store:
+        def save(self, session):
+            return session.session_id
+
+    created = []
+
+    def _capture_task(coro):
+        created.append(coro)
+        coro.close()
+        return None
+
+    monkeypatch.setattr("asyncio.create_task", _capture_task)
+    tui = InteractiveTUI(
+        session=ConversationSession(workspace=str(tmp_path)),
+        runtime=_Runtime(),
+        store=_Store(),
+        event_bus=EventBus(),
+        command_handler=lambda _cmd: "ok",
+        get_model=lambda: "deepseek-chat",
+    )
+    tui.buffer.text = "remember this prompt"
+    tui.buffer.validate_and_handle()
+    assert tui.buffer.text == ""
+    assert "remember this prompt" in list(tui.buffer.history.get_strings())
+    assert created
 
 
 def test_persistent_tui_visible_lines_are_window_sized(tmp_path, monkeypatch):
