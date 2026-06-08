@@ -81,6 +81,7 @@ class InteractiveTUI:
         self._assistant_stream_len = 0
         self._assistant_stream_text = ""
         self._mouse_scroll_enabled = True
+        self._active_task: asyncio.Task | None = None
 
         Path(".evoagent").mkdir(parents=True, exist_ok=True)
         self.buffer = Buffer(
@@ -186,7 +187,7 @@ class InteractiveTUI:
             if event.app.current_buffer.text:
                 event.app.current_buffer.text = ""
             elif self.state != "idle":
-                self._append("evo.warning", f"{sym('warn')} interrupt requested")
+                self._interrupt_current_turn()
             else:
                 event.app.exit()
 
@@ -201,6 +202,12 @@ class InteractiveTUI:
         def _esc(event):
             if self._approval is not None:
                 self._approval_resolve("no")
+                return
+            if self.state != "idle":
+                self._interrupt_current_turn()
+                return
+            if event.app.current_buffer.text:
+                event.app.current_buffer.text = ""
                 return
             if self.state == "idle" and not event.app.current_buffer.text:
                 event.app.exit()
@@ -332,8 +339,29 @@ class InteractiveTUI:
     def _accept(self, buf: Buffer) -> bool:
         text = buf.text.strip()
         if text:
-            asyncio.create_task(self._handle_input(text))
+            task = asyncio.create_task(self._handle_input(text))
+            if task is not None and self.state == "idle":
+                self._active_task = task
+                task.add_done_callback(self._clear_active_task)
         return False
+
+    def _clear_active_task(self, task: asyncio.Task) -> None:
+        if self._active_task is task:
+            self._active_task = None
+        try:
+            task.exception()
+        except asyncio.CancelledError:
+            pass
+
+    def _interrupt_current_turn(self) -> None:
+        self._queue.clear()
+        self._append("evo.warning", f"{sym('warn')} interrupted")
+        if self._active_task is not None and not self._active_task.done():
+            self._active_task.cancel()
+        elif self.state != "idle":
+            self.state = "idle"
+            self.store.save(self.session)
+        self._invalidate()
 
     async def _handle_input(self, text: str) -> None:
         if self.state != "idle":
@@ -402,6 +430,9 @@ class InteractiveTUI:
                 else:
                     assistant_idx = self._append_assistant_chunk(assistant_idx, chunk)
                 self._invalidate()
+        except asyncio.CancelledError:
+            self._append("evo.warning", f"{sym('warn')} current turn cancelled")
+            raise
         except Exception as e:
             self._append("evo.error", f"{sym('fail')} {e}")
         finally:

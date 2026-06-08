@@ -195,7 +195,8 @@ toolbar.
 | `↑` / `↓` | Browse input history |
 | `PageUp` / `PageDown` | Scroll conversation context with the keyboard |
 | `Home` / `End` | Jump to the beginning / latest context |
-| `Ctrl+D` / `Esc` | Exit the interactive session when the input is empty |
+| `Esc` | Interrupt the current model/tool turn; exits only when idle and the input is empty |
+| `Ctrl+D` | Exit the interactive session when the input is empty |
 
 ## Built-in Tools
 

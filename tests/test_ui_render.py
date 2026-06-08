@@ -545,6 +545,58 @@ async def test_persistent_tui_queues_input_while_busy(tmp_path, monkeypatch):
     assert not tui._queue
 
 
+@pytest.mark.asyncio
+async def test_persistent_tui_interrupt_cancels_active_turn(tmp_path, monkeypatch):
+    import asyncio
+    import contextlib
+
+    from evoagent.cli.ui.event_bus import EventBus
+    from evoagent.cli.ui.tui import InteractiveTUI
+    from evoagent.conversation.session import ConversationSession
+
+    monkeypatch.chdir(tmp_path)
+    started = asyncio.Event()
+
+    class _Runtime:
+        async def handle_user_message_stream(self, text):
+            started.set()
+            await asyncio.Event().wait()
+            yield "unreachable"
+
+    class _Store:
+        def __init__(self):
+            self.saved = 0
+
+        def save(self, session):
+            self.saved += 1
+            return session.session_id
+
+    store = _Store()
+    tui = InteractiveTUI(
+        session=ConversationSession(workspace=str(tmp_path)),
+        runtime=_Runtime(),
+        store=store,
+        event_bus=EventBus(),
+        command_handler=lambda _cmd: "ok",
+        get_model=lambda: "deepseek-chat",
+    )
+    task = asyncio.create_task(tui._process_input_now("wrong prompt"))
+    tui._active_task = task
+    await started.wait()
+    tui._queue.append("queued prompt")
+    tui._interrupt_current_turn()
+
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    joined = "\n".join("".join(text for _style, text in line) for line in tui._lines)
+    assert "interrupted" in joined
+    assert "current turn cancelled" in joined
+    assert tui.state == "idle"
+    assert not tui._queue
+    assert store.saved >= 1
+
+
 def test_persistent_tui_markdown_line_rendering():
     from evoagent.cli.ui.tui import _markdown_line
 
