@@ -212,6 +212,98 @@ class Database:
             ).fetchone()
         return int(row["c"])
 
+    def node_metrics(self, limit_events: int = 6000) -> list[dict[str, Any]]:
+        """Aggregate per node_type duration/count from node.completed events."""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT event_json FROM events
+                WHERE event_json LIKE '%\"node.completed\"%'
+                ORDER BY id DESC LIMIT ?
+                """,
+                (limit_events,),
+            ).fetchall()
+        agg: dict[str, dict[str, float]] = {}
+        for r in rows:
+            try:
+                data = json.loads(r["event_json"])
+            except json.JSONDecodeError:
+                continue
+            if data.get("event_type") != "node.completed":
+                continue
+            ntype = data.get("node_type") or data.get("node_id") or "unknown"
+            dur = (data.get("metrics") or {}).get("duration_ms") or 0
+            a = agg.setdefault(ntype, {"count": 0, "total": 0.0, "max": 0.0})
+            a["count"] += 1
+            a["total"] += dur
+            a["max"] = max(a["max"], dur)
+        result = []
+        for ntype, a in agg.items():
+            count = int(a["count"]) or 1
+            result.append({
+                "node_type": ntype,
+                "count": int(a["count"]),
+                "avg_ms": int(a["total"] / count),
+                "max_ms": int(a["max"]),
+            })
+        result.sort(key=lambda x: x["avg_ms"], reverse=True)
+        return result
+
+    def tool_metrics(self, limit_events: int = 6000) -> list[dict[str, Any]]:
+        """Aggregate per tool success/fail counts from tool.* events."""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT event_json FROM events
+                WHERE event_json LIKE '%\"tool.completed\"%' OR event_json LIKE '%\"tool.failed\"%'
+                ORDER BY id DESC LIMIT ?
+                """,
+                (limit_events,),
+            ).fetchall()
+        agg: dict[str, dict[str, int]] = {}
+        for r in rows:
+            try:
+                data = json.loads(r["event_json"])
+            except json.JSONDecodeError:
+                continue
+            et = data.get("event_type")
+            if et not in ("tool.completed", "tool.failed"):
+                continue
+            name = data.get("tool_name") or "tool"
+            a = agg.setdefault(name, {"success": 0, "failed": 0})
+            if et == "tool.completed":
+                a["success"] += 1
+            else:
+                a["failed"] += 1
+        result = []
+        for name, a in agg.items():
+            total = a["success"] + a["failed"]
+            result.append({
+                "tool": name,
+                "success": a["success"],
+                "failed": a["failed"],
+                "total": total,
+                "success_rate": round(a["success"] / total, 3) if total else 0.0,
+            })
+        result.sort(key=lambda x: x["total"], reverse=True)
+        return result
+
+    def run_timeline(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Recent runs in chronological order for trend charts."""
+        runs = self.list_runs(limit=limit)
+        runs.reverse()
+        return [
+            {
+                "run_id": r["run_id"],
+                "status": r["status"],
+                "duration_ms": r["duration_ms"],
+                "tool_count": r["tool_count"],
+                "event_count": r["event_count"],
+                "created_at": r["created_at"],
+            }
+            for r in runs
+        ]
+
     def next_seq(self, run_id: str) -> int:
         with self._lock:
             row = self.conn.execute(

@@ -130,6 +130,23 @@ def test_artifact_detail_endpoint():
     assert client.get("/artifacts/99999999").status_code == 404
 
 
+def test_metrics_endpoints():
+    # generate a couple of runs so aggregates are non-trivial
+    _run_mock("metrics one")
+    _run_mock("metrics two")
+
+    nodes = client.get("/metrics/nodes").json()["nodes"]
+    assert isinstance(nodes, list)
+    assert any("node_type" in n and "avg_ms" in n for n in nodes)
+
+    tools = client.get("/metrics/tools").json()["tools"]
+    assert isinstance(tools, list)  # may be empty in pure mock, but must be a list
+
+    timeline = client.get("/metrics/timeline?limit=10").json()["timeline"]
+    assert isinstance(timeline, list)
+    assert all("duration_ms" in t and "status" in t for t in timeline)
+
+
 def test_resume_unknown_run_404():
     assert client.post("/runs/nope/resume").status_code == 404
 

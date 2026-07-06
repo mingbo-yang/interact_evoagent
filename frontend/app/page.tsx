@@ -7,6 +7,7 @@ import ChatPanel, { type ChatMessage } from "@/components/ChatPanel";
 import NodeDetailPanel from "@/components/NodeDetailPanel";
 import RunHistory from "@/components/RunHistory";
 import StatsBar from "@/components/StatsBar";
+import TopNav from "@/components/TopNav";
 import WorkflowPanel from "@/components/WorkflowPanel";
 import { approveRun, createRun, submitFeedback } from "@/lib/api-client";
 import { streamEvents, type WorkflowEvent } from "@/lib/event-client";
@@ -42,6 +43,11 @@ export default function Page() {
     );
     const last = relevant[relevant.length - 1];
     return Boolean(last && last.event_type === "user.approval.required");
+  }, [events]);
+
+  const approvalText = useMemo(() => {
+    const req = [...events].reverse().find((e) => e.event_type === "user.approval.required");
+    return req?.visible_output || "检测到高风险操作，是否允许执行？";
   }, [events]);
 
   const liveStats = useMemo(() => {
@@ -144,13 +150,7 @@ export default function Page() {
           <button className="rail-toggle" onClick={() => setRailCollapsed((v) => !v)} title="Toggle history">
             ☰
           </button>
-          <div className="brand">
-            <span className="logo">◆</span>
-            <span>
-              EvoAgent
-              <small>Interactive Workflow</small>
-            </span>
-          </div>
+          <TopNav />
           <StatsBar live={liveStats} />
           <div className="header-spacer" />
           <select
@@ -162,26 +162,19 @@ export default function Page() {
             <option value="mock">mock orchestrator</option>
             <option value="evoagent">real evoagent</option>
           </select>
-          <button className="btn success" onClick={() => handleApprove(true)} disabled={!approvalPending}>
-            Approve
-          </button>
-          <button className="btn danger" onClick={() => handleApprove(false)} disabled={!approvalPending}>
-            Reject
-          </button>
+          {approvalPending ? <span className="badge paused">approval in chat ↓</span> : null}
         </header>
-
-        {approvalPending ? (
-          <div className="approval-banner">
-            <span>⏸️</span>
-            <span className="grow">检测到高风险操作，等待你的确认后才会执行。</span>
-            <button className="btn success" onClick={() => handleApprove(true)}>Approve</button>
-            <button className="btn danger" onClick={() => handleApprove(false)}>Reject</button>
-          </div>
-        ) : null}
 
         <div className="body">
           <div className="chat-cell">
-            <ChatPanel messages={messages} disabled={running} onSend={handleSend} />
+            <ChatPanel
+              messages={messages}
+              disabled={running}
+              onSend={handleSend}
+              approvalPending={approvalPending}
+              approvalText={approvalText}
+              onApprove={handleApprove}
+            />
           </div>
           <div className="workflow-cell">
             <WorkflowPanel events={events} selectedId={selectedId} onSelect={(e) => setSelectedId(e.event_id)} />

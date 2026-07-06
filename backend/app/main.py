@@ -49,6 +49,21 @@ def get_stats() -> dict:
     return db.stats()
 
 
+@app.get("/metrics/nodes")
+def metrics_nodes() -> dict:
+    return {"nodes": db.node_metrics()}
+
+
+@app.get("/metrics/tools")
+def metrics_tools() -> dict:
+    return {"tools": db.tool_metrics()}
+
+
+@app.get("/metrics/timeline")
+def metrics_timeline(limit: int = 20) -> dict:
+    return {"timeline": db.run_timeline(limit=limit)}
+
+
 @app.get("/artifacts/{artifact_id}")
 def get_artifact(artifact_id: int) -> dict:
     art = db.get_artifact(artifact_id)

@@ -86,6 +86,27 @@ export function getEventsList(runId: string): Promise<{ events: any[] }> {
   return jsonFetch(`/runs/${runId}/events/list`);
 }
 
+export type NodeMetric = { node_type: string; count: number; avg_ms: number; max_ms: number };
+export type ToolMetric = { tool: string; success: number; failed: number; total: number; success_rate: number };
+export type TimelinePoint = {
+  run_id: string;
+  status: string;
+  duration_ms: number;
+  tool_count: number;
+  event_count: number;
+  created_at: string;
+};
+
+export function getNodeMetrics(): Promise<{ nodes: NodeMetric[] }> {
+  return jsonFetch("/metrics/nodes");
+}
+export function getToolMetrics(): Promise<{ tools: ToolMetric[] }> {
+  return jsonFetch("/metrics/tools");
+}
+export function getTimeline(limit = 20): Promise<{ timeline: TimelinePoint[] }> {
+  return jsonFetch(`/metrics/timeline?limit=${limit}`);
+}
+
 export function backendBaseUrl(): string {
   return BASE_URL;
 }

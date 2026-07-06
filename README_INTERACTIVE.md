@@ -65,8 +65,16 @@ they are not required and are stubbed by default.
 ## Safety and approvals
 
 - High-risk shell actions trigger `user.approval.required`.
-- Frontend has Approve / Reject controls.
+- The approval prompt appears **inline in the conversation window** with 允许 (yes) / 拒绝 (no) buttons — you approve right where you're chatting.
 - Backend emits `user.approval.received` when approved.
+
+## Pages (multi-view)
+
+The frontend has three views, switchable from the top navigation:
+
+- **🖥️ Console** (`/`) — chat + live workflow trace + tools/artifacts/feedback + run history + stats. Approval prompts appear inline in the chat.
+- **🧩 Flow** (`/flow`) — the selected run's workflow rendered as an interactive **flowchart** (reactflow): stage pipeline + tool lane, node status colors, animated active edges, pan/zoom/minimap. Live for running runs, replayable for finished ones.
+- **📊 Metrics** (`/metrics`) — agent performance dashboard (auto-refresh): run/tool/memory totals, run & tool success-rate donuts, avg-duration-by-node and tool-usage bar charts, and a run-duration trend line. Backed by `/metrics/nodes`, `/metrics/tools`, `/metrics/timeline`, `/stats`.
 
 ## API reference
 
