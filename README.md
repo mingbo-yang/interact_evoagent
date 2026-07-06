@@ -51,20 +51,20 @@ EvoAgent 自带完整的原生代码能力（`write_file` / `edit_file` / `apply
 
 ```
 ┌──────────── Frontend · Next.js（改造开源 Chat UI）────────────┐
-│  Chat · Workflow Timeline · Node Detail · Tools · Artifacts   │
+│  Chat · Workflow Timeline · Node Detail · Tools · Artifacts  │
 │  运行历史 · 统计栏 · 审批控制                                  │
-│  只消费 workflow event，不依赖 Agent 内部对象                 │
+│  只消费 workflow event，不依赖 Agent 内部对象                  │
 └───────────────────────────────┬──────────────────────────────┘
                                  │  SSE  /  REST
 ┌───────────────────────────────▼──────────────────────────────┐
-│  Backend · FastAPI + SQLite                                   │
+│  Backend · FastAPI + SQLite                                  │
 │  InteractiveOrchestrator · WorkflowEvent(v1) · 审批 · 持久化  │
 └───────────────────────────────┬──────────────────────────────┘
                                  │
 ┌───────────────────────────────▼──────────────────────────────┐
 │  EvoAgent · 主 orchestrator（大脑 + 手）                      │
-│  ReAct loop · 原生代码工具 · memory · 模型路由(DeepSeek)      │
-└───────────────────────────────────────────────────────────────┘
+│  ReAct loop · 原生代码工具 · memory · 模型路由(DeepSeek)       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **设计原则**：开源 UI 做外壳 · EvoAgent 做大脑 · workflow trace 做亮点 · 前端只消费事件、不展示 CoT · 危险操作必须审批。
