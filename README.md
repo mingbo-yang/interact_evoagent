@@ -1,320 +1,160 @@
 <div align="center">
 
-# EvoAgent
+# 🧭 Interact-EvoAgent
 
-**An async, modular LLM agent framework for tool use, deterministic retrieval, multi-agent orchestration, and reproducible evaluation.**
+**一个把自主研究/编码 Agent 变成「看得见」的交互系统**
 
-[![English](https://img.shields.io/badge/docs-English-blue)](README.md)
-[![中文](https://img.shields.io/badge/docs-%E4%B8%AD%E6%96%87-red)](README_zh.md)
+*Web 对话 · 实时 Workflow 轨迹 · 工具与产物可视化 · 全链路可审计、可审批、可复现*
+
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-649%20passing-brightgreen)](#testing)
+[![FastAPI](https://img.shields.io/badge/backend-FastAPI%20%2B%20SSE-009688)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/frontend-Next.js%2014-black)](https://nextjs.org/)
+[![Backend Tests](https://img.shields.io/badge/backend%20tests-22%20passing-brightgreen)](#-测试)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Style](https://img.shields.io/badge/lint-ruff-000000)](https://github.com/astral-sh/ruff)
+
+**EvoAgent 做大脑，也做手** · 开源 Chat UI 做外壳 · Workflow Trace 做亮点
 
 </div>
 
 ---
 
-EvoAgent is a Python framework for building autonomous LLM agents around a single, inspectable **ReAct loop**. It ships a broad built-in toolset, a deterministic-first code-retrieval stack, an MCP client, parallel sub-agents, real token-level streaming, crash-safe resume, and an OpenTelemetry-compatible tracing layer — all verified end-to-end against a live model API.
+## 📖 项目简介
 
-Every component (models, tools, memory, retrieval, workflow nodes, evaluators) is replaceable, and every run is traceable, making EvoAgent suitable for both production automation and agent research.
+**Interact-EvoAgent** 在开源 Agent 框架 [**EvoAgent**](README_FRAMEWORK.md) 之上，构建了一个成熟的 **Web 交互系统**。
 
-## Table of Contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [CLI](#cli)
-- [Built-in Tools](#built-in-tools)
-- [Advanced Capabilities](#advanced-capabilities)
-- [Testing](#testing)
-- [Security Model](#security-model)
-- [Project Layout](#project-layout)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
-
-## Features
-
-- **Canonical ReAct engine** — one read–decide–act loop with permission checks, context compaction, cost tracking, and a provider-safe message history (every `tool_calls` turn is answered).
-- **Rich tool suite** — file editing, patching with undo, shell/Python execution, test running, glob, AST symbol outlines, deterministic code search, and web fetch/search with SSRF protection.
-- **Deterministic-first retrieval** — symbol-aware code chunking + keyword ranking, with an optional persistent vector store and hashing embeddings layered on top.
-- **MCP client** — connect to any [Model Context Protocol](https://modelcontextprotocol.io) server over stdio JSON-RPC and expose its tools to the agent.
-- **Parallel sub-agents** — a `task` tool that fans out independent sub-tasks to fresh, isolated agents running concurrently.
-- **Real streaming** — token-level SSE with streamed tool-call assembly (no dropped tool calls).
-- **Interrupt & steering** — inject instructions, stop after the current tool, cancel a long-running command, or forbid edits to specific files, all mid-run.
-- **Crash recovery** — atomic per-run checkpoints with `agent.resume(run_id)`.
-- **Reliability & safety** — HTTP retry with `Retry-After` backoff, recursive secret redaction before any persistence, and a deny/ask/allow permission policy.
-- **Observability** — dependency-optional OpenTelemetry tracing for run, LLM, and tool spans.
-- **Evaluation** — a Docker-free SWE-bench-style harness that produces a patch and verifies it against the instance's tests on a clean checkout.
-
-## Architecture
+你在网页里下达任务，系统由 EvoAgent 作为**主 orchestrator（大脑）**驱动，完整执行一条可追踪的生命周期：
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  Agent  -  memory · checkpoints · tracing · steering │
-└───────────────────────────┬──────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────┐
-│  ReAct Engine  -  loop · compaction · cost           │
-└───────────────────────────┬──────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────┐
-│  Model Router  -  OpenAI-compatible / DeepSeek       │
-└───────────────────────────┬──────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────┐
-│  Tool Registry  -  files · shell · web ·             │
-│  code_search · MCP · task                            │
-└───────────────────────────┬──────────────────────────┘
-                            ▼
-┌──────────────────────────────────────────────────────┐
-│  Permission Policy  +  Retrieval / Vector Store      │
-└──────────────────────────────────────────────────────┘
+理解任务 → 记忆检索 → 任务规划 → 工具路由 → 执行 → 反思修正 → 记忆沉淀 → 最终回答
 ```
 
-## Installation
+每一步都以统一的 **WorkflowEvent** 通过 SSE 实时推送到前端，渲染成可视化的执行轨迹——**只展示可审计的 workflow trace，不暴露模型原始思维链（CoT）**。
 
-Requires **Python 3.11+**.
+EvoAgent 自带完整的原生代码能力（`write_file` / `edit_file` / `apply_patch` / `run_tests` / `git_diff` / `bash` …），因此系统**本身就能自动修改仓库、生成 diff、跑测试修 bug**，无需依赖 Codex / Claude Code；后者仅作为**可选、可插拔**的外部适配器保留。
+
+> 一句话：把「一个能自主研究、自主写代码的 Agent」包装成一个**人能看懂、能干预、能复盘**的产品化界面。
+
+## ✨ 核心特性
+
+| 能力 | 说明 |
+| --- | --- |
+| 🧠 **真实 EvoAgent 驱动** | `evoagent` 模式跑真实 LLM（DeepSeek），并把 EvoAgent 内部真实工具调用 surface 到 workflow |
+| 🧭 **实时 Workflow Trace** | SSE 事件流驱动的富时间线：节点图标、状态徽章、连接线、时长条、running 脉冲动画 |
+| 💬 **对话窗口** | Markdown 渲染，改造自开源 Chat UI（`@chatscope/chat-ui-kit-react`） |
+| 🔧 **工具 & 产物可视化** | Tool Calls 面板 + Artifacts 面板，内置彩色 **diff 查看器** |
+| ⏸️ **审批闭环** | 高风险操作触发 `user.approval.required`，前端 Approve / Reject，后端回 `user.approval.received` |
+| 💾 **持久化与回放** | SQLite 落地 `runs / events / artifacts / memories`；历史侧栏点击即可回放任意 run |
+| 📊 **统计面板** | 实时 steps / tools / elapsed / status，以及全局聚合统计 |
+| 🔐 **安全脱敏** | 事件与产物中的敏感串（API Key 等）自动脱敏后再持久化 |
+
+## 🏗️ 架构
+
+```
+┌──────────── Frontend · Next.js（改造开源 Chat UI）────────────┐
+│  Chat · Workflow Timeline · Node Detail · Tools · Artifacts   │
+│  运行历史 · 统计栏 · 审批控制                                  │
+│  只消费 workflow event，不依赖 Agent 内部对象                 │
+└───────────────────────────────┬──────────────────────────────┘
+                                 │  SSE  /  REST
+┌───────────────────────────────▼──────────────────────────────┐
+│  Backend · FastAPI + SQLite                                   │
+│  InteractiveOrchestrator · WorkflowEvent(v1) · 审批 · 持久化  │
+└───────────────────────────────┬──────────────────────────────┘
+                                 │
+┌───────────────────────────────▼──────────────────────────────┐
+│  EvoAgent · 主 orchestrator（大脑 + 手）                      │
+│  ReAct loop · 原生代码工具 · memory · 模型路由(DeepSeek)      │
+└───────────────────────────────────────────────────────────────┘
+```
+
+**设计原则**：开源 UI 做外壳 · EvoAgent 做大脑 · workflow trace 做亮点 · 前端只消费事件、不展示 CoT · 危险操作必须审批。
+
+## 📂 目录结构
+
+```
+.
+├── evoagent/              # EvoAgent 框架本体（含 Windows 兼容与稳定性修复）
+├── backend/               # FastAPI + SSE + SQLite 编排后端
+│   ├── app/
+│   │   ├── main.py        # REST + SSE 路由
+│   │   ├── agent/         # InteractiveOrchestrator + EvoAgent wrapper
+│   │   ├── schemas/       # WorkflowEvent v1 等契约
+│   │   ├── storage/       # SQLite（runs/events/artifacts/memories）
+│   │   └── tools/         # ShellTool + Codex/ClaudeCode 可选适配器
+│   ├── tests/             # 22 passing（storage/api/orchestrator）
+│   └── CONTRACT.md        # 事件与 API 契约
+├── frontend/              # Next.js 前端（改造开源 Chat UI + 富可视化组件）
+│   ├── app/               # 页面 + 设计系统
+│   ├── components/        # Chat / Workflow / NodeDetail / Tools / Artifacts / Diff / History / Stats
+│   └── lib/               # api-client / event-client / ui 工具
+├── README.md              # 本文件（项目首页）
+├── README_INTERACTIVE.md  # 交互系统完整文档（API、功能、启动）
+└── README_FRAMEWORK.md    # EvoAgent 框架原始文档
+```
+
+## 🚀 快速开始
+
+### 后端
 
 ```bash
-git clone https://github.com/mingbo-yang/EvoAgent.git
-cd EvoAgent
-pip install -e .
+cd backend
+python -m pip install -r requirements.txt
 
-# optional extras
-pip install -e ".[dev]"            # tests, linting
-pip install -e ".[observability]"  # OpenTelemetry tracing
-```
-
-## Quick Start
-
-Set an API key (DeepSeek or any OpenAI-compatible endpoint):
-
-```bash
+# 真实模式需要 DeepSeek Key；不设置则自动降级为 mock，可无 Key 演示完整工作流
 export DEEPSEEK_API_KEY="sk-..."
+
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Run a one-shot task from Python:
-
-```python
-import asyncio
-from pathlib import Path
-
-from evoagent.core.agent import Agent
-from evoagent.models.schema import ModelConfig
-from evoagent.models.factory import ProviderFactory
-from evoagent.models.router import ModelRouter
-from evoagent.tools.builtin import create_builtin_registry
-
-
-async def main():
-    workspace = Path(".")
-    provider = ProviderFactory.create(ModelConfig(
-        provider="deepseek",
-        model="deepseek-chat",
-        base_url="https://api.deepseek.com/v1",
-        api_key_env="DEEPSEEK_API_KEY",
-    ))
-    router = ModelRouter(providers={"default": provider})
-    registry = create_builtin_registry(workspace, auto_approve=True)
-
-    agent = Agent(model_router=router, tool_registry=registry, workspace=workspace)
-    result = await agent.run("Find the failing test in this project and fix it.")
-    print(result.final_answer)
-
-
-asyncio.run(main())
-```
-
-Or from the terminal:
+### 前端
 
 ```bash
-evoagent run "Summarize the structure of this repository"
-evoagent chat        # interactive session
+cd frontend
+npm install
+export NEXT_PUBLIC_BACKEND_URL="http://localhost:8000"
+npm run dev          # 打开 http://localhost:3000
 ```
 
-## Configuration
+在页面右上角切换模式：`mock`（无 Key 演示）或 `evoagent`（真实 EvoAgent）。
 
-EvoAgent reads configuration from `evoagent.yaml` and environment variables. Initialize a project with:
+## 🔌 API 一览
+
+| Method & Path | 用途 |
+| --- | --- |
+| `POST /runs` | 创建一次运行（`mode`: `mock` \| `evoagent`） |
+| `GET /runs` | 运行列表（含 tool_count / event_count / duration_ms 指标） |
+| `GET /runs/{id}` | 运行状态 + 产物 |
+| `GET /runs/{id}/events` | **SSE** 事件流 |
+| `GET /runs/{id}/events/list` | 事件 JSON 回放（按 seq 有序） |
+| `POST /runs/{id}/approve` | 审批（approve / reject） |
+| `POST /runs/{id}/resume` | 恢复暂停的运行 |
+| `GET /runs/{id}/artifacts` · `GET /artifacts/{id}` | 产物列表 / 详情（diff、测试输出） |
+| `GET /runs/{id}/memories` · `GET /memories` | 记忆记录 |
+| `GET /stats` | 全局聚合统计 |
+| `POST /runs/{id}/feedback` | 提交评分 / 反馈 |
+
+完整说明见 **[README_INTERACTIVE.md](README_INTERACTIVE.md)**。
+
+## 🧪 测试
 
 ```bash
-evoagent init
+# 交互系统后端
+cd backend && python -m pytest -q        # 22 passing
+
+# 前端类型检查 + 生产构建
+cd frontend && npm run build
+
+# EvoAgent 框架（可选）
+pytest -q                                # 694 passing, 5 skipped
 ```
 
-API keys are referenced by environment-variable name (`api_key_env`) and are **never** written to source, logs, traces, or session files.
+真实 API 端到端已验证：mock / evoagent 全流程、ShellTool 与 EvoAgent 原生代码工具（write_file / git_diff / run_tests）surface、审批闭环（暂停 → 拒绝→tool.failed / 批准→approval.received）。
 
-| Variable | Purpose |
-| --- | --- |
-| `DEEPSEEK_API_KEY` | DeepSeek API key (required for the model) |
-| `TAVILY_API_KEY` | Optional Tavily search API key — enables the `web_search` fallback |
-| `EVOAGENT_EGRESS_ALLOWLIST` | Optional comma-separated host allowlist for web tools |
+## 🙏 致谢
 
-### Web search
+- 底层 Agent 框架：[EvoAgent](README_FRAMEWORK.md)（MIT）
+- 前端聊天基座：[@chatscope/chat-ui-kit-react](https://github.com/chatscope/chat-ui-kit-react)（MIT）
 
-The `web_search` tool works **without any API key** by scraping Bing and
-DuckDuckGo HTML results. For higher reliability you can optionally enable the
-[Tavily](https://tavily.com) search API as a **fallback** — it is only called
-when the free HTML backends return nothing or are unreachable, so it conserves
-your Tavily credits:
+## 📄 许可
 
-```bash
-export TAVILY_API_KEY="tvly-..."   # optional; never commit this value
-```
-
-When set, search resolution is: **Bing → DuckDuckGo → Tavily**. The key is read
-only from the environment and is never written to source, logs, or sessions.
-
-## CLI
-
-| Command | Description |
-| --- | --- |
-| `evoagent run <task>` | Run a one-shot agent task |
-| `evoagent chat` | Start an interactive chat session |
-| `evoagent code <task>` | Run the code agent on a software task |
-| `evoagent eval <suite>` | Run an evaluation benchmark suite |
-| `evoagent init` | Initialize EvoAgent in the current directory |
-| `evoagent config` | Manage configuration |
-| `evoagent memory` | Manage agent memories |
-| `evoagent trace` | Inspect execution traces |
-
-### Interactive UI controls
-
-`evoagent chat` opens a dedicated full-screen agent interface. The default mouse
-mode is `wheel`, where the mouse wheel scrolls through conversation context.
-Press `F2` to switch to `copy` mode, which temporarily releases mouse selection
-back to the terminal so you can drag-select and copy model replies. Press `F2`
-again to return to `wheel` mode. The current mode is shown in the bottom
-toolbar.
-
-| Shortcut | Description |
-| --- | --- |
-| `F2` | Toggle between `wheel` mode (mouse-wheel scrolling) and `copy` mode (drag-select copy) |
-| `↑` / `↓` | Browse input history |
-| `PageUp` / `PageDown` | Scroll conversation context with the keyboard |
-| `Home` / `End` | Jump to the beginning / latest context |
-| `Esc` | Interrupt the current model/tool turn; exits only when idle and the input is empty |
-| `Ctrl+D` | Exit the interactive session when the input is empty |
-
-## Built-in Tools
-
-| Category | Tools |
-| --- | --- |
-| **Files** | `read_file`, `write_file`, `edit_file`, `multi_edit`, `apply_patch`, `undo_last` |
-| **Navigation** | `list_directory`, `grep`, `glob`, `outline`, `code_search` |
-| **Execution** | `bash`, `python`, `run_tests` |
-| **Version control** | `git_status`, `git_diff` |
-| **Planning** | `write_todos`, `list_todos` |
-| **Web** | `web_fetch`, `web_search` (SSRF-guarded) |
-| **Orchestration** | `task` (parallel sub-agents), plus any MCP server tools |
-
-## Advanced Capabilities
-
-<details>
-<summary><b>Interrupt &amp; steering</b></summary>
-
-```python
-from evoagent.core.steering import SteeringController
-
-steering = SteeringController()
-agent = Agent(..., steering=steering)
-
-steering.inject("Also update the changelog")  # queue an instruction
-steering.forbid_file("config.py")             # protect a file
-steering.request_stop()                       # stop after the current tool
-steering.cancel()                             # cancel an in-flight tool
-```
-</details>
-
-<details>
-<summary><b>Crash recovery &amp; resume</b></summary>
-
-```python
-agent = Agent(..., checkpoint_dir=".runs")
-result = await agent.run("Long multi-step task")
-# After a crash/restart:
-result = await agent.resume(result.run_id, follow_up="Continue where you left off")
-```
-</details>
-
-<details>
-<summary><b>MCP client</b></summary>
-
-```python
-from evoagent.mcp import MCPClient, register_mcp_tools
-
-client = MCPClient(["python", "my_mcp_server.py"])
-await register_mcp_tools(registry, client)   # tools registered under mcp__*
-```
-</details>
-
-<details>
-<summary><b>Observability</b></summary>
-
-```python
-from evoagent.observability import Tracer, configure_otel
-
-configure_otel("evoagent")           # if opentelemetry SDK is installed
-tracer = Tracer(use_otel=True)
-agent = Agent(..., tracer=tracer)
-# tracer.spans_named("tool.execute") -> recorded spans
-```
-</details>
-
-## Testing
-
-```bash
-pip install -e ".[dev]"
-ruff check evoagent tests
-pytest -q
-```
-
-The suite contains **649 tests**. Every major capability is additionally verified end-to-end against a live model API rather than mocks alone.
-
-## Security Model
-
-- **Permission policy** — deny > ask > allow, with safe defaults that block destructive shell commands and writes to system paths.
-- **Workspace sandboxing** — file tools reject paths that escape the workspace; `glob` rejects `..` traversal.
-- **Egress protection** — web tools block requests to private, loopback, link-local, and reserved addresses (re-checked on every redirect) and honor an optional host allowlist.
-- **Secret redaction** — API keys, tokens, and credentials are recursively redacted before any logging, tracing, or session persistence.
-
-> EvoAgent is research-grade software. Review the [Security Policy](SECURITY.md) before running it against untrusted inputs or in production.
-
-## Project Layout
-
-```
-evoagent/
-├── core/            # ReAct engine, agent, steering, checkpoints, cost, redaction
-├── models/          # provider abstraction, OpenAI-compatible + DeepSeek, streaming
-├── tools/           # built-in tool registry and implementations
-├── sandbox/         # permission policy + egress (SSRF) protection
-├── retrieval/       # code retriever, vector store, embeddings, keyword index
-├── rag/             # document loading, chunking, query engine
-├── mcp/             # Model Context Protocol stdio client
-├── observability/   # OpenTelemetry-compatible tracing
-├── conversation/    # sessions, runtime, context compaction
-├── memory/          # experience/reflection memory store
-├── planning/        # planner, executor, critic, reflector
-├── workflow/        # workflow graph + runtime
-├── multi_agent/     # multi-agent roles and protocols
-├── eval/            # evaluation harness + SWE-bench-style runner
-├── skills/          # reusable agent skills
-├── code/            # code-agent helpers (repo map, patching, diagnostics)
-├── logging/         # JSONL events, traces, diffs
-├── config/          # configuration models and loading
-└── cli/             # Typer CLI and terminal UI
-```
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md). Native Anthropic and Gemini adapters are planned; today they are reachable via any OpenAI-compatible gateway.
-
-## Contributing
-
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), run `ruff` and `pytest` before opening a pull request, and keep changes covered by tests.
-
-## License
-
-Released under the [MIT License](LICENSE).
+基于 EvoAgent，遵循 [MIT License](LICENSE)。
