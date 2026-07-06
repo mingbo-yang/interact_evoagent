@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "event_id": "evt_001",
+  "event_type": "node.completed",
+  "source": "orchestrator",
+  "run_id": "run_001",
+  "thread_id": "thread_001",
+  "seq": 5,
+  "step_id": 2,
+  "node_id": "planning",
+  "node_name": "任务规划",
+  "node_type": "planning",
+  "status": "success",
+  "visible_input": "用户希望构建一个带 workflow 展示的 Agent 交互系统。",
+  "visible_output": "任务被拆分为前端 UI、后端事件流、EvoAgent 接入、工具 Agent 接入四部分。",
+  "tool_name": null,
+  "tool_calls": [],
+  "artifacts": [],
+  "metrics": {
+    "duration_ms": 1830,
+    "tokens": 1200
+  },
+  "error": null,
+  "started_at": "2026-07-06T10:30:00Z",
+  "ended_at": "2026-07-06T10:30:02Z"
+}
+

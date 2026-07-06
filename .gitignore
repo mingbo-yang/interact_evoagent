@@ -16,6 +16,7 @@ env/
 # EvoAgent runtime
 .evoagent/
 .runs/
+.interactive/
 eval_report.md
 eval_report.json
 *.tmp_docker_ws/
@@ -33,3 +34,9 @@ eval_report.json
 *~
 .tmp_docker_test/
 .tmp_docker_ws/
+frontend/node_modules/
+frontend/.next/
+
+# Interactive system temp/demo scratch files
+backend/_*.py
+__evoagent_demo_note.txt
