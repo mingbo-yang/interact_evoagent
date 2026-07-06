@@ -22,7 +22,7 @@
 
 **Interact-EvoAgent** 在开源 Agent 框架 [**EvoAgent**](README_FRAMEWORK.md) 之上，构建了一个成熟的 **Web 交互系统**。
 
-你在网页里下达任务，系统由 EvoAgent 作为**主 orchestrator（大脑）**驱动，完整执行一条可追踪的生命周期：
+你在网页里下达任务，系统由 EvoAgent 作为 **主 orchestrator（大脑）** 驱动，完整执行一条可追踪的生命周期：
 
 ```
 理解任务 → 记忆检索 → 任务规划 → 工具路由 → 执行 → 反思修正 → 记忆沉淀 → 最终回答
