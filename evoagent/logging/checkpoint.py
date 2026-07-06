@@ -65,13 +65,15 @@ class CheckpointManager:
             filename = f"{chk_id}_{name}.json"
         filepath = run_dir / filename
         filepath.write_text(
-            checkpoint.model_dump_json(indent=2, ensure_ascii=False)
+            json.dumps(checkpoint.model_dump(mode="json"), indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
 
         # Also write latest pointer
         latest_meta = {"checkpoint_id": chk_id, "name": name, "timestamp": timestamp}
         (run_dir / "latest.json").write_text(
-            json.dumps(latest_meta, indent=2, ensure_ascii=False)
+            json.dumps(latest_meta, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
 
         return checkpoint

@@ -58,6 +58,9 @@ class EvalReport:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         content = EvalReport.to_markdown(results) if fmt == "md" else EvalReport.to_json(results)
+        if fmt == "md":
+            # Keep in-memory markdown rich, but persist disk reports as locale-safe text.
+            content = content.replace("✅", "PASS").replace("❌", "FAIL")
         p.write_text(content, encoding="utf-8")
         return str(p)
 

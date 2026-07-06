@@ -1,5 +1,7 @@
 """Tests for DockerSandbox. Auto-skip if docker unavailable, use workspace-accessible temp dirs."""
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -9,8 +11,27 @@ from evoagent.sandbox.policy import PermissionPolicy
 from evoagent.sandbox.workspace import Workspace
 
 
+def _docker_ready() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    try:
+        proc = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
 @pytest.fixture
 def sandbox():
+    if not _docker_ready():
+        pytest.skip("docker daemon not available")
     # Create workspace in project area (Docker-accessible on this system)
     ws_path = Path(__file__).parent / ".tmp_docker_ws"
     ws_path.mkdir(exist_ok=True)

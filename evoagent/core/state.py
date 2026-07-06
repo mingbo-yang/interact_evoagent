@@ -1,6 +1,7 @@
 """RuntimeState — the single source of truth for agent execution state."""
 
 from enum import StrEnum
+import json
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
@@ -138,14 +139,16 @@ class RuntimeState(BaseModel):
     def save_json(self, path: str) -> None:
         """Save RuntimeState to a JSON file."""
         from pathlib import Path
-        Path(path).write_text(self.model_dump_json(indent=2, ensure_ascii=False), encoding="utf-8")
+        Path(path).write_text(
+            json.dumps(self.model_dump(mode="json"), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     @classmethod
     def load_json(cls, path: str) -> "RuntimeState":
         """Load RuntimeState from a JSON file."""
         from pathlib import Path
         return cls.model_validate_json(Path(path).read_text(encoding="utf-8"))
-
 
 
 

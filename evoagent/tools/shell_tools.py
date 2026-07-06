@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from evoagent.core.ids import generate_id
+from evoagent.core.shell_compat import normalize_shell_command
 from evoagent.sandbox.base import BaseSandbox
 from evoagent.sandbox.policy import PermissionPolicy
 from evoagent.tools.base import BaseTool, RiskLevel, resolve_workspace_path
@@ -35,6 +36,7 @@ class BashTool(BaseTool):
         self.auto_approve = auto_approve
 
     async def run(self, command: str, timeout: int = 30, cwd: str | None = None) -> ToolResult:
+        command = normalize_shell_command(command)
         # Always check via PermissionPolicy
         decision = self.policy.check("shell", command, risk_level="high")
         if decision.value == "deny":

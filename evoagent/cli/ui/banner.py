@@ -124,6 +124,7 @@ def render_banner(version: str, model_label: str, mode: str, workspace: str,
         subtitle_align="right",
         border_style="evo.border",
         box=box.ROUNDED,
+        safe_box=False,
         padding=(1, _PAD),
         width=panel_width,
     )

@@ -48,7 +48,7 @@ class DatasetLoader:
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             for task in tasks:
-                f.write(task.model_dump_json(ensure_ascii=False) + "\n")
+                f.write(json.dumps(task.model_dump(mode="json"), ensure_ascii=False) + "\n")
 
     @staticmethod
     def validate(tasks: list[EvalTask]) -> list[str]:

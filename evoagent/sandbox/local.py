@@ -6,6 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from evoagent.core.shell_compat import normalize_shell_command
 from evoagent.sandbox.base import BaseSandbox
 from evoagent.sandbox.policy import PermissionPolicy
 from evoagent.sandbox.schema import PermissionDecision, SandboxResult
@@ -39,6 +40,7 @@ class LocalSandbox(BaseSandbox):
     async def run_shell(
         self, command: str, cwd: str | None = None, timeout: int = 30
     ) -> SandboxResult:
+        command = normalize_shell_command(command)
         # Permission check
         decision = self.policy.check("shell", command, risk_level="high")
         if decision == PermissionDecision.DENY:

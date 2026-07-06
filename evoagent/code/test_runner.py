@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from evoagent.core.shell_compat import normalize_shell_command
+
 
 class TestResult(BaseModel):
     success: bool = False
@@ -30,7 +32,7 @@ class CodeTestRunner:
         self.default_command = default_command
 
     def run(self, command: str | None = None, timeout: int = 60) -> TestResult:
-        cmd = command or self.default_command
+        cmd = normalize_shell_command(command or self.default_command)
         t0 = time.monotonic()
         try:
             proc = subprocess.run(
