@@ -13,6 +13,7 @@ from app.tools.shell_tool import ShellTool
 class InteractiveOrchestrator:
     def __init__(self, db: Database, workspace: str):
         self.db = db
+        self.workspace = workspace
         self.shell_tool = ShellTool(workspace)
         self._evoagent: EvoAgentWrapper | None = None
 
@@ -297,7 +298,7 @@ class InteractiveOrchestrator:
         )
         try:
             if self._evoagent is None:
-                self._evoagent = EvoAgentWrapper()
+                self._evoagent = EvoAgentWrapper(self.workspace)
             agent_result = await self._evoagent.run_full(user_input)
             answer = agent_result.answer
 
