@@ -27,19 +27,18 @@ class AgentRunResult:
 
 
 class EvoAgentWrapper:
-    """Wrapper around EvoAgent that surfaces its internal tool calls.
+    """Wrapper around EvoAgent that surfaces its internal tool calls and wires
+    per-tool approval to the interactive host.
 
     EvoAgent has native file-edit / patch / run_tests / git_diff / bash tools,
     so it modifies repos, produces diffs, and runs tests on its own — no
     external code agent required.
 
-    The tool registry is built with ``auto_approve=True`` (EvoAgent's documented
-    autonomous usage). This is essential: EvoAgent's ReAct loop runs tools
-    synchronously inside ``agent.run()``, so ASK-classified commands (e.g. a
-    harmless ``cd``) cannot be routed to the chat approval popup mid-loop —
-    without auto-approve they would simply fail with "Permission required".
-    Genuinely destructive commands are still blocked by the policy's DENY rules.
-    Explicit high-risk intent is gated by the orchestrator's own approval flow.
+    The registry is built with ``auto_approve=True`` so the *tool layer* does not
+    double-gate; the real approval decision for ASK actions is delegated to the
+    ``approval_hook`` passed to :meth:`run_full`, which the orchestrator bridges
+    to the in-chat approval prompt. Genuinely destructive commands are still
+    blocked by the policy's DENY rules before the hook is ever consulted.
     """
 
     def __init__(self, workspace: str | None = None):
@@ -65,8 +64,21 @@ class EvoAgentWrapper:
         )
         self._agent = Agent(model_router=router, tool_registry=tools, workspace=ws)
 
-    async def run_full(self, user_input: str) -> AgentRunResult:
-        result = await self._agent.run(user_input)
+    async def run_full(
+        self,
+        user_input: str,
+        approval_hook: Any = None,
+        tool_event_hook: Any = None,
+    ) -> AgentRunResult:
+        # Bind per-run hooks so ASK actions can be approved live in the chat and
+        # tool events streamed. Read by the ReAct engine at run() time.
+        self._agent.approval_hook = approval_hook
+        self._agent.tool_event_hook = tool_event_hook
+        try:
+            result = await self._agent.run(user_input)
+        finally:
+            self._agent.approval_hook = None
+            self._agent.tool_event_hook = None
         answer = result.final_answer or result.error or "No answer generated."
 
         tool_calls: list[ToolCallRecord] = []

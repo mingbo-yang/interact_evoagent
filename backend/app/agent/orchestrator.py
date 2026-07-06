@@ -281,8 +281,6 @@ class InteractiveOrchestrator:
                 duration_ms=180,
             )
 
-        tool_output = await self._maybe_use_shell_tool(run_id, thread_id, user_input)
-
         self._emit(
             self._event(
                 run_id,
@@ -299,17 +297,19 @@ class InteractiveOrchestrator:
         try:
             if self._evoagent is None:
                 self._evoagent = EvoAgentWrapper(self.workspace)
-            agent_result = await self._evoagent.run_full(user_input)
+
+            # Wire EvoAgent's internal per-tool approval + events to the chat.
+            approval_hook = self._make_approval_hook(run_id, thread_id)
+            tool_event_hook = self._make_tool_event_hook(run_id, thread_id)
+            agent_result = await self._evoagent.run_full(
+                user_input, approval_hook=approval_hook, tool_event_hook=tool_event_hook
+            )
             answer = agent_result.answer
 
-            # Surface EvoAgent's OWN internal tool calls (edit_file, apply_patch,
-            # run_tests, git_diff, bash, ...) into the workflow so the
-            # "auto-edit code -> diff -> test" loop is visible without any
-            # external code agent (Codex/Claude Code).
-            self._surface_agent_tool_calls(run_id, thread_id, agent_result.tool_calls)
+            # After the run, persist full-content artifacts (diff/test output)
+            # from the agent's tool results (the live hook only carries a preview).
+            self._surface_agent_artifacts(run_id, thread_id, agent_result.tool_calls)
 
-            if tool_output:
-                answer = f"{answer}\n\n[Tool Context]\n{tool_output}"
             self._emit(
                 self._event(
                     run_id,
@@ -473,6 +473,133 @@ class InteractiveOrchestrator:
                     ended_at=iso_now(),
                 )
             )
+
+    def _surface_agent_artifacts(self, run_id: str, thread_id: str, tool_calls: list) -> None:
+        """Persist full-content artifacts (diff/test output) from tool results.
+
+        The live tool_event_hook only carries a short preview, so after the run
+        we store the full output of code tools as inspectable artifacts.
+        """
+        for call in tool_calls:
+            output = call.output or ""
+            if call.success and call.name in self._ARTIFACT_TOOLS and output.strip():
+                title = {"git_diff": "Diff", "run_tests": "Test Result"}.get(
+                    call.name, f"{call.name} output"
+                )
+                self.db.create_artifact(run_id, call.name, title, output[:8000])
+                self._emit(
+                    self._event(
+                        run_id,
+                        thread_id,
+                        "artifact.created",
+                        status="success",
+                        tool_name=call.name,
+                        source="evoagent",
+                        artifacts=[{"kind": call.name, "title": title}],
+                    )
+                )
+
+    @staticmethod
+    def _describe_tool(name: str, arguments: dict) -> str:
+        args = arguments or {}
+        if name in ("bash", "shell", "run_shell"):
+            return f"$ {args.get('command', '')}"
+        if name in ("write_file", "edit_file", "multi_edit", "apply_patch"):
+            return f"{name}: {args.get('path') or args.get('file_path') or ''}"
+        if name in ("python", "run_python"):
+            return f"python: {(args.get('code') or '')[:120]}"
+        return f"{name}({', '.join(f'{k}={str(v)[:40]}' for k, v in list(args.items())[:2])})"
+
+    async def _await_tool_approval(self, run_id: str, thread_id: str, description: str) -> bool:
+        """Emit an approval request for an agent tool call and wait for the user."""
+        self.db.update_run(run_id, status="paused", approval_state="required")
+        self._emit(
+            self._event(
+                run_id,
+                thread_id,
+                "user.approval.required",
+                status="paused",
+                source="evoagent",
+                visible_output=f"EvoAgent 想执行需要审批的操作：\n{description}\n是否允许？",
+            )
+        )
+        waited = 0
+        while waited < 300:
+            row = self.db.get_run(run_id)
+            if not row:
+                return False
+            state = row["approval_state"]
+            if state == "approved":
+                self.db.update_run(run_id, status="running", approval_state="none")
+                self._emit(
+                    self._event(
+                        run_id,
+                        thread_id,
+                        "user.approval.received",
+                        status="running",
+                        source="evoagent",
+                        visible_output="已批准，继续执行。",
+                    )
+                )
+                return True
+            if state == "rejected":
+                self.db.update_run(run_id, status="running", approval_state="none")
+                self._emit(
+                    self._event(
+                        run_id,
+                        thread_id,
+                        "user.approval.received",
+                        status="running",
+                        source="evoagent",
+                        visible_output="已拒绝，跳过该操作。",
+                    )
+                )
+                return False
+            await asyncio.sleep(1)
+            waited += 1
+        return False
+
+    def _make_approval_hook(self, run_id: str, thread_id: str):
+        async def hook(name: str, arguments: dict) -> bool:
+            return await self._await_tool_approval(run_id, thread_id, self._describe_tool(name, arguments))
+
+        return hook
+
+    def _make_tool_event_hook(self, run_id: str, thread_id: str):
+        async def hook(event_type: str, tool_name: str, payload: dict) -> None:
+            if event_type == "tool_call_started":
+                args = payload.get("arguments") or {}
+                self._emit(
+                    self._event(
+                        run_id,
+                        thread_id,
+                        "tool.started",
+                        status="running",
+                        tool_name=tool_name,
+                        source="evoagent",
+                        visible_input=self._describe_tool(tool_name, args),
+                    )
+                )
+            elif event_type in ("tool_call_finished", "tool_call_failed"):
+                ok = event_type == "tool_call_finished"
+                out = str(payload.get("output", ""))
+                self._emit(
+                    self._event(
+                        run_id,
+                        thread_id,
+                        "tool.completed" if ok else "tool.failed",
+                        status="success" if ok else "failed",
+                        tool_name=tool_name,
+                        source="evoagent",
+                        visible_output=out[:1200] if ok else None,
+                        error=None if ok else EventError(
+                            code="AGENT_TOOL_FAILED", message=out[:400] or "tool failed", retryable=False
+                        ),
+                        ended_at=iso_now(),
+                    )
+                )
+
+        return hook
 
     def _write_memory(
         self,

@@ -64,9 +64,19 @@ they are not required and are stubbed by default.
 
 ## Safety and approvals
 
-- High-risk shell actions trigger `user.approval.required`.
-- The approval prompt appears **inline in the conversation window** with 允许 (yes) / 拒绝 (no) buttons — you approve right where you're chatting.
-- Backend emits `user.approval.received` when approved.
+- **All of EvoAgent's internal ASK tool calls are wired to the chat.** The
+  ReAct engine's `approval_hook` bridges to an in-chat approval prompt: any
+  action the permission policy classifies as ASK (e.g. `mkdir`, a non
+  allow-listed shell command, most file writes) **pauses the run** and shows
+  「EvoAgent 想执行需要审批的操作：… 是否允许？」inline in the conversation
+  window with 允许 (yes) / 拒绝 (no) buttons. The run resumes on 允许 and skips
+  the action on 拒绝.
+- Allow-listed safe commands (`ls`, `echo`, `cat`, `grep`, `git status/diff`, …)
+  and read-only tools run without prompting.
+- **DENY rules still hard-block** genuinely destructive commands (`rm -rf`,
+  `sudo`, disk/format, force-push, …) before any prompt is shown.
+- Tool calls stream live to the workflow (`tool.started` / `tool.completed` /
+  `tool.failed`) via the engine's `tool_event_hook`.
 
 ## Pages (multi-view)
 

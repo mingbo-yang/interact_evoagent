@@ -115,6 +115,66 @@ def test_surface_agent_tool_calls_emits_events_and_artifacts():
         tmp.cleanup()
 
 
+def test_tool_event_hook_emits_started_and_completed():
+    orch, db, tmp = _make()
+    try:
+        run_id = f"run_{uuid.uuid4().hex[:8]}"
+        thread_id = f"thread_{uuid.uuid4().hex[:8]}"
+        db.create_run(run_id, thread_id, "evoagent", "x")
+        hook = orch._make_tool_event_hook(run_id, thread_id)
+
+        async def scenario():
+            await hook("tool_call_started", "bash", {"arguments": {"command": "ls -la"}})
+            await hook("tool_call_finished", "bash", {"output": "total 0"})
+            await hook("tool_call_failed", "python", {"output": "boom"})
+
+        asyncio.run(scenario())
+        events = db.list_events_after(run_id, 0)
+        types = [e.event_type for e in events]
+        assert "tool.started" in types
+        assert "tool.completed" in types
+        assert "tool.failed" in types
+        started = next(e for e in events if e.event_type == "tool.started")
+        assert started.source == "evoagent"
+        assert "ls -la" in (started.visible_input or "")
+    finally:
+        db.close()
+        tmp.cleanup()
+
+
+def test_approval_hook_approve_and_reject():
+    orch, db, tmp = _make()
+    try:
+        run_id = f"run_{uuid.uuid4().hex[:8]}"
+        thread_id = f"thread_{uuid.uuid4().hex[:8]}"
+        db.create_run(run_id, thread_id, "evoagent", "x")
+        hook = orch._make_approval_hook(run_id, thread_id)
+
+        async def approve_scenario():
+            task = asyncio.create_task(hook("bash", {"command": "rm -rf x"}))
+            await asyncio.sleep(0.3)
+            db.update_run(run_id, approval_state="approved")
+            return await asyncio.wait_for(task, timeout=5)
+
+        approved = asyncio.run(approve_scenario())
+        assert approved is True
+        types = [e.event_type for e in db.list_events_after(run_id, 0)]
+        assert "user.approval.required" in types
+        assert "user.approval.received" in types
+
+        async def reject_scenario():
+            task = asyncio.create_task(hook("bash", {"command": "rm -rf y"}))
+            await asyncio.sleep(0.3)
+            db.update_run(run_id, approval_state="rejected")
+            return await asyncio.wait_for(task, timeout=5)
+
+        rejected = asyncio.run(reject_scenario())
+        assert rejected is False
+    finally:
+        db.close()
+        tmp.cleanup()
+
+
 def test_mock_run_emits_memory_updated():
     orch, db, tmp = _make()
     try:

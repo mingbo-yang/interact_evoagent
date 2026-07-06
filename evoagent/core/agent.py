@@ -44,6 +44,8 @@ class Agent:
         steering: Any = None,
         checkpoint_dir: str | Path | None = None,
         tracer: Any = None,
+        approval_hook: Any = None,
+        tool_event_hook: Any = None,
     ):
         self.workspace = Path(workspace)
         self.tool_registry = tool_registry or create_builtin_registry(self.workspace)
@@ -88,6 +90,10 @@ class Agent:
         self._token_budget = token_budget
         self._keep_recent_tokens = keep_recent_tokens
         self.steering = steering
+        # Optional per-tool approval + event hooks (wired by an interactive host
+        # so ASK actions can be approved live and tool events streamed).
+        self.approval_hook = approval_hook
+        self.tool_event_hook = tool_event_hook
         # Directory for crash-recovery checkpoints (one subdir per run_id).
         # None disables checkpointing.
         self._checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
@@ -155,7 +161,10 @@ class Agent:
             cost=run_cost,
             # Non-interactive: auto-approve ASK actions (deny rules still apply),
             # matching the legacy plan-ahead loop which ran tools unconditionally.
+            # When an approval_hook is supplied, it governs ASK decisions instead.
             ask_fallback="allow",
+            approval_hook=self.approval_hook,
+            tool_event_hook=self.tool_event_hook,
             token_budget=self._token_budget,
             keep_recent_tokens=self._keep_recent_tokens,
             steering=self.steering,
