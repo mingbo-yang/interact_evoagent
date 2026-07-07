@@ -19,6 +19,8 @@ class EventError(BaseModel):
 class EventMetrics(BaseModel):
     duration_ms: int | None = None
     tokens: int | None = None
+    cost: float | None = None
+    steps: int | None = None
 
 
 class WorkflowEvent(BaseModel):

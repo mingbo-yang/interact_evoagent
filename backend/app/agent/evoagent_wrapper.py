@@ -16,6 +16,7 @@ class ToolCallRecord:
     success: bool
     output: str
     error: str | None = None
+    duration_ms: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -24,6 +25,9 @@ class AgentRunResult:
     answer: str
     success: bool
     tool_calls: list[ToolCallRecord]
+    steps: int = 0
+    total_tokens: int = 0
+    total_cost: float = 0.0
 
 
 class EvoAgentWrapper:
@@ -91,10 +95,18 @@ class EvoAgentWrapper:
                         success=tr.success,
                         output=tr.output or "",
                         error=tr.error,
+                        duration_ms=int(getattr(tr, "duration_ms", 0) or 0),
                         metadata=dict(tr.metadata or {}),
                     )
                 )
-        return AgentRunResult(answer=answer, success=result.success, tool_calls=tool_calls)
+        return AgentRunResult(
+            answer=answer,
+            success=result.success,
+            tool_calls=tool_calls,
+            steps=int(getattr(result, "steps_taken", 0) or 0),
+            total_tokens=int(getattr(result, "total_tokens", 0) or 0),
+            total_cost=float(getattr(result, "total_cost", 0.0) or 0.0),
+        )
 
     async def run(self, user_input: str) -> str:
         return (await self.run_full(user_input)).answer

@@ -48,6 +48,9 @@ class Database:
                     tool_count INTEGER NOT NULL DEFAULT 0,
                     event_count INTEGER NOT NULL DEFAULT 0,
                     duration_ms INTEGER NOT NULL DEFAULT 0,
+                    steps INTEGER,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_cost REAL NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -94,6 +97,15 @@ class Database:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_thread_id ON runs(thread_id);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id);")
+            # Migrate existing databases that predate the metrics columns.
+            existing_cols = {r["name"] for r in cur.execute("PRAGMA table_info(runs)").fetchall()}
+            for col, ddl in (
+                ("steps", "steps INTEGER"),
+                ("total_tokens", "total_tokens INTEGER NOT NULL DEFAULT 0"),
+                ("total_cost", "total_cost REAL NOT NULL DEFAULT 0"),
+            ):
+                if col not in existing_cols:
+                    cur.execute(f"ALTER TABLE runs ADD COLUMN {ddl}")
             self.conn.commit()
 
     def create_run(self, run_id: str, thread_id: str, mode: str, user_input: str) -> None:
@@ -119,6 +131,9 @@ class Database:
         tool_count: int | None = None,
         event_count: int | None = None,
         duration_ms: int | None = None,
+        steps: int | None = None,
+        total_tokens: int | None = None,
+        total_cost: float | None = None,
     ) -> None:
         assignments: list[str] = ["updated_at = ?"]
         values: list[Any] = [iso_now()]
@@ -143,6 +158,15 @@ class Database:
         if duration_ms is not None:
             assignments.append("duration_ms = ?")
             values.append(duration_ms)
+        if steps is not None:
+            assignments.append("steps = ?")
+            values.append(steps)
+        if total_tokens is not None:
+            assignments.append("total_tokens = ?")
+            values.append(total_tokens)
+        if total_cost is not None:
+            assignments.append("total_cost = ?")
+            values.append(total_cost)
         values.append(run_id)
         with self._lock:
             self.conn.execute(f"UPDATE runs SET {', '.join(assignments)} WHERE run_id = ?", values)
@@ -159,7 +183,8 @@ class Database:
                 rows = self.conn.execute(
                     """
                     SELECT run_id, thread_id, mode, status, user_input, tool_count,
-                           event_count, duration_ms, created_at, updated_at
+                           event_count, duration_ms, steps, total_tokens, total_cost,
+                           created_at, updated_at
                     FROM runs WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?
                     """,
                     (thread_id, limit),
@@ -168,7 +193,8 @@ class Database:
                 rows = self.conn.execute(
                     """
                     SELECT run_id, thread_id, mode, status, user_input, tool_count,
-                           event_count, duration_ms, created_at, updated_at
+                           event_count, duration_ms, steps, total_tokens, total_cost,
+                           created_at, updated_at
                     FROM runs ORDER BY created_at DESC LIMIT ?
                     """,
                     (limit,),
@@ -185,7 +211,10 @@ class Database:
                     COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
                     COALESCE(SUM(tool_count), 0) AS total_tools,
                     COALESCE(SUM(event_count), 0) AS total_events,
-                    COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
+                    COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(total_cost), 0) AS total_cost,
+                    COALESCE(AVG(steps), 0) AS avg_steps
                 FROM runs
                 """
             ).fetchone()
@@ -195,6 +224,9 @@ class Database:
         result["total_memories"] = int(mem["c"])
         result["total_artifacts"] = int(art["c"])
         result["avg_duration_ms"] = int(result["avg_duration_ms"])
+        result["total_tokens"] = int(result["total_tokens"])
+        result["total_cost"] = round(float(result["total_cost"]), 6)
+        result["avg_steps"] = round(float(result["avg_steps"]), 1)
         return result
 
     def count_events(self, run_id: str) -> int:
@@ -260,7 +292,7 @@ class Database:
                 """,
                 (limit_events,),
             ).fetchall()
-        agg: dict[str, dict[str, int]] = {}
+        agg: dict[str, dict[str, float]] = {}
         for r in rows:
             try:
                 data = json.loads(r["event_json"])
@@ -270,20 +302,29 @@ class Database:
             if et not in ("tool.completed", "tool.failed"):
                 continue
             name = data.get("tool_name") or "tool"
-            a = agg.setdefault(name, {"success": 0, "failed": 0})
+            a = agg.setdefault(name, {"success": 0, "failed": 0, "dur_total": 0.0, "dur_n": 0, "dur_max": 0.0})
             if et == "tool.completed":
                 a["success"] += 1
             else:
                 a["failed"] += 1
+            dur = (data.get("metrics") or {}).get("duration_ms")
+            if dur:
+                a["dur_total"] += dur
+                a["dur_n"] += 1
+                a["dur_max"] = max(a["dur_max"], dur)
         result = []
         for name, a in agg.items():
-            total = a["success"] + a["failed"]
+            total = int(a["success"] + a["failed"])
+            dur_n = int(a["dur_n"]) or 1
             result.append({
                 "tool": name,
-                "success": a["success"],
-                "failed": a["failed"],
+                "success": int(a["success"]),
+                "failed": int(a["failed"]),
                 "total": total,
                 "success_rate": round(a["success"] / total, 3) if total else 0.0,
+                "avg_ms": int(a["dur_total"] / dur_n) if a["dur_n"] else 0,
+                "total_ms": int(a["dur_total"]),
+                "max_ms": int(a["dur_max"]),
             })
         result.sort(key=lambda x: x["total"], reverse=True)
         return result
@@ -299,6 +340,8 @@ class Database:
                 "duration_ms": r["duration_ms"],
                 "tool_count": r["tool_count"],
                 "event_count": r["event_count"],
+                "total_tokens": r["total_tokens"],
+                "steps": r["steps"],
                 "created_at": r["created_at"],
             }
             for r in runs

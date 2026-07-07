@@ -16,7 +16,7 @@ import {
   type TimelinePoint,
   type ToolMetric
 } from "@/lib/api-client";
-import { fmtDuration } from "@/lib/ui";
+import { fmtCompact, fmtDuration } from "@/lib/ui";
 
 export default function MetricsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -55,12 +55,20 @@ export default function MetricsPage() {
     value: n.avg_ms,
     display: fmtDuration(n.avg_ms)
   }));
-  const toolBars: BarItem[] = tools.map((t) => ({
+  const toolUsageBars: BarItem[] = tools.map((t) => ({
     label: t.tool,
     value: t.total,
     display: `${t.total} · ${Math.round(t.success_rate * 100)}%`
   }));
+  const toolLatencyBars: BarItem[] = tools
+    .filter((t) => t.avg_ms > 0)
+    .map((t) => ({ label: t.tool, value: t.avg_ms, display: fmtDuration(t.avg_ms) }))
+    .sort((a, b) => b.value - a.value);
+
   const durationSeries = timeline.map((t) => ({ value: t.duration_ms, status: t.status }));
+  const tokenSeries = timeline.map((t) => ({ value: t.total_tokens || 0, status: t.status }));
+  const hasTokens = tokenSeries.some((p) => p.value > 0);
+  const showCost = (stats?.total_cost ?? 0) > 0;
 
   return (
     <div className="page-shell">
@@ -84,16 +92,26 @@ export default function MetricsPage() {
             <span className="m-sub">{tools.length} distinct tools</span>
           </div>
           <div className="mcard">
+            <span className="m-title">🎫 Tokens used</span>
+            <span className="m-big">{fmtCompact(stats?.total_tokens)}</span>
+            <span className="m-sub">{showCost ? `~ $${(stats?.total_cost ?? 0).toFixed(4)} est.` : "cost n/a"}</span>
+          </div>
+          <div className="mcard">
+            <span className="m-title">🪜 Avg steps / run</span>
+            <span className="m-big">{(stats?.avg_steps ?? 0).toFixed(1)}</span>
+            <span className="m-sub">LLM iterations per run</span>
+          </div>
+
+          <div className="mcard">
+            <span className="m-title">⏱️ Avg duration</span>
+            <span className="m-big">{fmtDuration(stats?.avg_duration_ms)}</span>
+            <span className="m-sub">wall-clock per run</span>
+          </div>
+          <div className="mcard">
             <span className="m-title">💾 Memories</span>
             <span className="m-big">{stats?.total_memories ?? 0}</span>
             <span className="m-sub">{stats?.total_artifacts ?? 0} artifacts</span>
           </div>
-          <div className="mcard">
-            <span className="m-title">⏱️ Avg duration</span>
-            <span className="m-big">{fmtDuration(stats?.avg_duration_ms)}</span>
-            <span className="m-sub">{stats?.total_events ?? 0} events total</span>
-          </div>
-
           <div className="mcard span2" style={{ alignItems: "center", flexDirection: "row", gap: 20 }}>
             <Donut value={successRate} sub="run success" />
             <div style={{ flex: 1 }}>
@@ -104,6 +122,13 @@ export default function MetricsPage() {
             </div>
           </div>
 
+          <div className="mcard span2">
+            <span className="m-title">🧠 Avg duration by node</span>
+            <BarList items={nodeBars} />
+            <span className="m-sub" style={{ marginTop: 4 }}>
+              Execution (real agent work) dominates; pipeline stages are lightweight.
+            </span>
+          </div>
           <div className="mcard span2" style={{ alignItems: "center", flexDirection: "row", gap: 20 }}>
             <Donut value={toolSuccess} sub="tool success" />
             <div style={{ flex: 1 }}>
@@ -115,18 +140,27 @@ export default function MetricsPage() {
           </div>
 
           <div className="mcard span2">
-            <span className="m-title">🧠 Avg duration by node</span>
-            <BarList items={nodeBars} />
+            <span className="m-title">🛠️ Tool usage (count · success%)</span>
+            <BarList items={toolUsageBars} />
           </div>
           <div className="mcard span2">
-            <span className="m-title">🛠️ Tool usage (count · success%)</span>
-            <BarList items={toolBars} />
+            <span className="m-title">⚡ Tool latency (avg)</span>
+            <BarList items={toolLatencyBars} color="linear-gradient(90deg,#f59e0b,#ef4444)" />
+            {toolLatencyBars.length === 0 ? (
+              <span className="m-sub" style={{ marginTop: 4 }}>No timed tool calls yet.</span>
+            ) : null}
           </div>
 
-          <div className="mcard span4">
+          <div className={hasTokens ? "mcard span2" : "mcard span4"}>
             <span className="m-title">📈 Run duration trend (recent {timeline.length})</span>
             <LineChart points={durationSeries} unit="ms" />
           </div>
+          {hasTokens ? (
+            <div className="mcard span2">
+              <span className="m-title">🎫 Tokens per run (recent {timeline.length})</span>
+              <LineChart points={tokenSeries} unit=" tok" />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

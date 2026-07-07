@@ -26,6 +26,9 @@ export type Stats = {
   avg_duration_ms: number;
   total_memories: number;
   total_artifacts: number;
+  total_tokens: number;
+  total_cost: number;
+  avg_steps: number;
 };
 
 export type Artifact = {
@@ -87,13 +90,24 @@ export function getEventsList(runId: string): Promise<{ events: any[] }> {
 }
 
 export type NodeMetric = { node_type: string; count: number; avg_ms: number; max_ms: number };
-export type ToolMetric = { tool: string; success: number; failed: number; total: number; success_rate: number };
+export type ToolMetric = {
+  tool: string;
+  success: number;
+  failed: number;
+  total: number;
+  success_rate: number;
+  avg_ms: number;
+  total_ms: number;
+  max_ms: number;
+};
 export type TimelinePoint = {
   run_id: string;
   status: string;
   duration_ms: number;
   tool_count: number;
   event_count: number;
+  total_tokens: number;
+  steps: number | null;
   created_at: string;
 };
 

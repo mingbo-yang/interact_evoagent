@@ -125,7 +125,7 @@ def test_tool_event_hook_emits_started_and_completed():
 
         async def scenario():
             await hook("tool_call_started", "bash", {"arguments": {"command": "ls -la"}})
-            await hook("tool_call_finished", "bash", {"output": "total 0"})
+            await hook("tool_call_finished", "bash", {"output": "total 0", "duration_ms": 42})
             await hook("tool_call_failed", "python", {"output": "boom"})
 
         asyncio.run(scenario())
@@ -137,6 +137,12 @@ def test_tool_event_hook_emits_started_and_completed():
         started = next(e for e in events if e.event_type == "tool.started")
         assert started.source == "evoagent"
         assert "ls -la" in (started.visible_input or "")
+        # duration from the payload is surfaced onto the completed event, and
+        # aggregated into the per-tool latency metrics.
+        completed = next(e for e in events if e.event_type == "tool.completed")
+        assert completed.metrics is not None and completed.metrics.duration_ms == 42
+        bash_metric = next(t for t in db.tool_metrics() if t["tool"] == "bash")
+        assert bash_metric["avg_ms"] == 42 and bash_metric["max_ms"] == 42
     finally:
         db.close()
         tmp.cleanup()

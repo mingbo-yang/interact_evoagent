@@ -452,7 +452,8 @@ class ReActEngine:
 
         await self._emit(
             "tool_call_finished" if ok else "tool_call_failed",
-            tc.name, {"output": str(out)[:200]},
+            tc.name,
+            {"output": str(out)[:200], "duration_ms": int(getattr(tr, "duration_ms", 0) or 0)},
         )
         msg = Message(role=MessageRole.TOOL, tool_call_id=tc.id, name=tc.name, content=str(out))
         return tr, msg, errors

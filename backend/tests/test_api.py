@@ -116,6 +116,9 @@ def test_list_runs_and_stats_and_metrics():
     assert stats["total_runs"] >= 1
     assert stats["completed"] >= 1
     assert "avg_duration_ms" in stats
+    # Enriched aggregate metrics are always present.
+    for key in ("total_tokens", "total_cost", "avg_steps"):
+        assert key in stats
 
 
 def test_artifact_detail_endpoint():
@@ -141,10 +144,13 @@ def test_metrics_endpoints():
 
     tools = client.get("/metrics/tools").json()["tools"]
     assert isinstance(tools, list)  # may be empty in pure mock, but must be a list
+    # Latency aggregates are always exposed per tool.
+    assert all({"avg_ms", "total_ms", "max_ms"} <= set(t) for t in tools)
 
     timeline = client.get("/metrics/timeline?limit=10").json()["timeline"]
     assert isinstance(timeline, list)
     assert all("duration_ms" in t and "status" in t for t in timeline)
+    assert all("total_tokens" in t and "steps" in t for t in timeline)
 
 
 def test_resume_unknown_run_404():

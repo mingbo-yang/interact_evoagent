@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from typing import Any
 
@@ -46,8 +47,9 @@ class InteractiveOrchestrator:
         node_type: str,
         visible_input: str,
         visible_output: str,
-        duration_ms: int = 100,
+        pace_ms: int = 100,
     ) -> None:
+        started = time.perf_counter()
         self._emit(
             self._event(
                 run_id,
@@ -61,7 +63,8 @@ class InteractiveOrchestrator:
                 visible_input=visible_input,
             )
         )
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(max(0.0, pace_ms / 1000))
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         self._emit(
             self._event(
                 run_id,
@@ -74,7 +77,7 @@ class InteractiveOrchestrator:
                 status="success",
                 visible_input=visible_input,
                 visible_output=visible_output,
-                metrics=EventMetrics(duration_ms=duration_ms),
+                metrics=EventMetrics(duration_ms=elapsed_ms),
                 ended_at=iso_now(),
             )
         )
@@ -90,6 +93,7 @@ class InteractiveOrchestrator:
             "task_understanding",
             user_input,
             "已抽取用户目标与约束。",
+            pace_ms=140,
         )
         await self._emit_node(
             run_id,
@@ -100,6 +104,7 @@ class InteractiveOrchestrator:
             "planning",
             "基于用户输入进行拆解。",
             "任务拆分为协议、后端、前端与工具接入。",
+            pace_ms=300,
         )
         final = "这是 mock orchestrator 的回复：已完成流程演示。"
         await self._emit_node(
@@ -111,6 +116,7 @@ class InteractiveOrchestrator:
             "final_response",
             "汇总执行结果。",
             final,
+            pace_ms=120,
         )
         self.db.update_run(run_id, status="completed", final_answer=final)
         self._emit(
@@ -263,12 +269,12 @@ class InteractiveOrchestrator:
     async def run_evoagent(self, run_id: str, thread_id: str, user_input: str) -> None:
         self._emit(self._event(run_id, thread_id, "run.started", status="running"))
         stage_pairs = [
-            ("task_understanding", "任务理解", "task_understanding"),
-            ("memory_retrieval", "记忆检索", "memory_retrieval"),
-            ("planning", "任务规划", "planning"),
-            ("tool_routing", "工具路由", "tool_routing"),
+            ("task_understanding", "任务理解", "task_understanding", 160),
+            ("memory_retrieval", "记忆检索", "memory_retrieval", 120),
+            ("planning", "任务规划", "planning", 220),
+            ("tool_routing", "工具路由", "tool_routing", 140),
         ]
-        for idx, (node_id, node_name, node_type) in enumerate(stage_pairs, start=1):
+        for idx, (node_id, node_name, node_type, pace) in enumerate(stage_pairs, start=1):
             await self._emit_node(
                 run_id,
                 thread_id,
@@ -278,7 +284,7 @@ class InteractiveOrchestrator:
                 node_type,
                 user_input,
                 f"{node_name}完成。",
-                duration_ms=180,
+                pace_ms=pace,
             )
 
         self._emit(
@@ -294,6 +300,7 @@ class InteractiveOrchestrator:
                 visible_input=user_input,
             )
         )
+        exec_started = time.perf_counter()
         try:
             if self._evoagent is None:
                 self._evoagent = EvoAgentWrapper(self.workspace)
@@ -305,6 +312,7 @@ class InteractiveOrchestrator:
                 user_input, approval_hook=approval_hook, tool_event_hook=tool_event_hook
             )
             answer = agent_result.answer
+            exec_ms = int((time.perf_counter() - exec_started) * 1000)
 
             # After the run, persist full-content artifacts (diff/test output)
             # from the agent's tool results (the live hook only carries a preview).
@@ -321,7 +329,10 @@ class InteractiveOrchestrator:
                     node_type="execution",
                     status="success",
                     visible_output="执行阶段完成。",
-                    metrics=EventMetrics(duration_ms=800),
+                    metrics=EventMetrics(
+                        duration_ms=exec_ms,
+                        tokens=agent_result.total_tokens or None,
+                    ),
                     ended_at=iso_now(),
                 )
             )
@@ -334,7 +345,7 @@ class InteractiveOrchestrator:
                 "reflection",
                 "检查执行结果。",
                 "未发现需要重试的问题。",
-                duration_ms=150,
+                pace_ms=150,
             )
             await self._emit_node(
                 run_id,
@@ -345,9 +356,16 @@ class InteractiveOrchestrator:
                 "final_response",
                 "生成最终答复。",
                 answer,
-                duration_ms=120,
+                pace_ms=120,
             )
-            self.db.update_run(run_id, status="completed", final_answer=answer)
+            self.db.update_run(
+                run_id,
+                status="completed",
+                final_answer=answer,
+                steps=agent_result.steps,
+                total_tokens=agent_result.total_tokens,
+                total_cost=agent_result.total_cost,
+            )
             self._emit(
                 self._event(
                     run_id,
@@ -355,6 +373,12 @@ class InteractiveOrchestrator:
                     "run.completed",
                     status="success",
                     visible_output=answer,
+                    metrics=EventMetrics(
+                        duration_ms=exec_ms,
+                        tokens=agent_result.total_tokens or None,
+                        cost=round(agent_result.total_cost, 6) if agent_result.total_cost else None,
+                        steps=agent_result.steps or None,
+                    ),
                     ended_at=iso_now(),
                 )
             )
@@ -465,6 +489,9 @@ class InteractiveOrchestrator:
                     tool_name=call.name,
                     source="evoagent",
                     visible_output=output[:1200] if call.success else None,
+                    metrics=EventMetrics(duration_ms=int(getattr(call, "duration_ms", 0)))
+                    if getattr(call, "duration_ms", 0)
+                    else None,
                     error=None if call.success else EventError(
                         code="AGENT_TOOL_FAILED",
                         message=call.error or "tool failed",
@@ -583,6 +610,8 @@ class InteractiveOrchestrator:
             elif event_type in ("tool_call_finished", "tool_call_failed"):
                 ok = event_type == "tool_call_finished"
                 out = str(payload.get("output", ""))
+                dur = payload.get("duration_ms")
+                metrics = EventMetrics(duration_ms=int(dur)) if dur else None
                 self._emit(
                     self._event(
                         run_id,
@@ -592,6 +621,7 @@ class InteractiveOrchestrator:
                         tool_name=tool_name,
                         source="evoagent",
                         visible_output=out[:1200] if ok else None,
+                        metrics=metrics,
                         error=None if ok else EventError(
                             code="AGENT_TOOL_FAILED", message=out[:400] or "tool failed", retryable=False
                         ),
